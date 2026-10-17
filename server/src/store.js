@@ -1,0 +1,393 @@
+'use strict';
+/**
+ * Data access for the whole app (SQLite). Keeps in-memory copies of employees and devices so that
+ * recognising a face needs no query, and emits 'employees' / 'devices' when they change
+ * (the sync engine listens to push changes to the terminals).
+ */
+const { EventEmitter } = require('node:events');
+const { newDeviceId } = require('./db');
+
+const DEFAULT_SETTINGS = {
+  lateGraceMinutes: 5,
+  debounceSeconds: 60,
+  autoTimeSync: true,
+  dailyReportTime: '09:30',
+  dailyReportEnabled: true,
+  organizationName: '',
+};
+
+const bool = (v) => !!Number(v);
+const nowIso = () => new Date().toISOString();
+const json = (s, d) => { try { return JSON.parse(s); } catch { return d; } };
+const toDate = (v) => (v ? new Date(v) : null);
+const iso = (v) => (v ? new Date(v).toISOString() : null);
+
+function weekdayOf(date) {
+  // date is "YYYY-MM-DD" (local); weekday of that calendar day
+  return new Date(`${date}T12:00:00Z`).getUTCDay();
+}
+
+function mapEmployee(r) {
+  return {
+    id: r.id,
+    employeeNo: r.employee_no,
+    name: r.name,
+    position: r.position || '',
+    phone: r.phone || '',
+    telegramChatId: r.telegram_chat_id || '',
+    scheduleId: r.schedule_id,
+    hourlyRate: r.hourly_rate,
+    active: bool(r.active),
+    deleted: bool(r.deleted),
+    hasFace: bool(r.has_face),
+    version: r.version,
+    deviceSync: json(r.device_sync, {}),
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  };
+}
+
+function mapDevice(r) {
+  return {
+    ...json(r.status, {}),
+    id: r.id,
+    name: r.name,
+    ip: r.ip || '',
+    port: r.port,
+    username: r.username,
+    password: r.password,
+    direction: r.direction,
+    disabled: bool(r.disabled),
+    resyncRequestedAt: r.resync_requested_at || null,
+    resyncDoneFor: r.resync_done_for || null,
+    createdAt: r.created_at,
+  };
+}
+
+function mapAttendance(r) {
+  if (!r) return null;
+  return {
+    id: r.id,
+    employeeId: r.employee_id,
+    date: r.date,
+    employeeNo: r.employee_no,
+    employeeName: r.employee_name,
+    checkIn: toDate(r.check_in),
+    checkInDeviceId: r.check_in_device_id,
+    checkInDeviceName: r.check_in_device_name,
+    checkOut: toDate(r.check_out),
+    checkOutDeviceId: r.check_out_device_id,
+    checkOutDeviceName: r.check_out_device_name,
+    workStart: r.work_start,
+    workEnd: r.work_end,
+    hourlyRate: r.hourly_rate,
+    lateMinutes: r.late_minutes,
+    earlyMinutes: r.early_minutes,
+    workedMinutes: r.worked_minutes,
+    manual: bool(r.manual),
+  };
+}
+
+function mapSchedule(r) {
+  return { id: r.id, name: r.name, days: json(r.days, {}) };
+}
+
+class LocalStore extends EventEmitter {
+  constructor(db) {
+    super();
+    this.db = db;
+    this.ready = Promise.resolve();
+    this.employees = new Map();
+    this.devices = new Map();
+    this.settings = { ...DEFAULT_SETTINGS };
+    this.reloadSettings();
+    this.reloadEmployees(false);
+    this.reloadDevices(false);
+  }
+
+  q(sql) { return this.db.prepare(sql); }
+
+  // ---------- caches ----------
+  reloadEmployees(emit = true) {
+    this.employees = new Map(this.q('SELECT * FROM employees').all().map((r) => [r.id, mapEmployee(r)]));
+    if (emit) this.emit('employees');
+  }
+
+  reloadDevices(emit = true) {
+    this.devices = new Map(this.q('SELECT * FROM devices').all().map((r) => [r.id, mapDevice(r)]));
+    if (emit) this.emit('devices');
+  }
+
+  reloadSettings() {
+    const s = { ...DEFAULT_SETTINGS };
+    for (const r of this.q('SELECT key, value FROM settings').all()) s[r.key] = json(r.value, null);
+    this.settings = s;
+  }
+
+  // ---------- settings ----------
+  saveSettings(patch) {
+    const stmt = this.q('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value');
+    for (const [k, v] of Object.entries(patch)) if (k in DEFAULT_SETTINGS) stmt.run(k, JSON.stringify(v));
+    this.reloadSettings();
+    this.emit('settings');
+    return this.settings;
+  }
+
+  // ---------- schedules ----------
+  listSchedules() { return this.q('SELECT * FROM schedules ORDER BY id').all().map(mapSchedule); }
+
+  getSchedule(id) {
+    const r = this.q('SELECT * FROM schedules WHERE id = ?').get(id);
+    return r ? mapSchedule(r) : null;
+  }
+
+  saveSchedule({ id, name, days }) {
+    if (id) {
+      this.q('UPDATE schedules SET name = ?, days = ? WHERE id = ?').run(name, JSON.stringify(days), id);
+      return id;
+    }
+    return Number(this.q('INSERT INTO schedules (name, days) VALUES (?, ?)').run(name, JSON.stringify(days)).lastInsertRowid);
+  }
+
+  deleteSchedule(id) {
+    const used = this.q('SELECT COUNT(*) AS n FROM employees WHERE schedule_id = ? AND deleted = 0').get(id).n;
+    if (used) throw Object.assign(new Error(`Bu jadval ${used} ta xodimga biriktirilgan`), { status: 400 });
+    if (this.q('SELECT COUNT(*) AS n FROM schedules').get().n <= 1) {
+      throw Object.assign(new Error('Kamida bitta jadval qolishi kerak'), { status: 400 });
+    }
+    this.q('DELETE FROM schedules WHERE id = ?').run(id);
+  }
+
+  /** Work hours of an employee on a date: { start, end } or null for a day off. */
+  getWorkHoursSync(employee, date) {
+    let sched = employee.scheduleId ? this.getSchedule(employee.scheduleId) : null;
+    if (!sched) sched = this.listSchedules()[0];
+    if (!sched) return null;
+    const d = sched.days[String(weekdayOf(date))];
+    return d && d.start && d.end ? { start: d.start, end: d.end } : null;
+  }
+
+  async getWorkHours(employee, date) { return this.getWorkHoursSync(employee, date); }
+
+  // ---------- employees ----------
+  async findEmployeeByNo(no) {
+    for (const e of this.employees.values()) if (!e.deleted && String(e.employeeNo) === String(no)) return e;
+    return null;
+  }
+
+  getEmployee(id) {
+    const r = this.q('SELECT * FROM employees WHERE id = ?').get(id);
+    return r ? mapEmployee(r) : null;
+  }
+
+  nextEmployeeNo() {
+    const r = this.q('SELECT MAX(CAST(employee_no AS INTEGER)) AS m FROM employees').get();
+    return String((r.m || 0) + 1);
+  }
+
+  createEmployee(e, { emit = true } = {}) {
+    const r = this.q(`INSERT INTO employees (employee_no, name, position, phone, telegram_chat_id, schedule_id, hourly_rate, active)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      this.nextEmployeeNo(), e.name, e.position || null, e.phone || null, e.telegramChatId || null,
+      e.scheduleId || null, Number(e.hourlyRate) || 0, e.active === false ? 0 : 1,
+    );
+    if (emit) this.reloadEmployees();
+    return Number(r.lastInsertRowid);
+  }
+
+  updateEmployee(id, e) {
+    this.q(`UPDATE employees SET name = ?, position = ?, phone = ?, telegram_chat_id = ?, schedule_id = ?, hourly_rate = ?,
+      active = ?, version = version + 1, updated_at = ? WHERE id = ?`).run(
+      e.name, e.position || null, e.phone || null, e.telegramChatId || null, e.scheduleId || null,
+      Number(e.hourlyRate) || 0, e.active ? 1 : 0, nowIso(), id,
+    );
+    this.reloadEmployees();
+  }
+
+  deleteEmployee(id) {
+    this.db.exec('BEGIN');
+    try {
+      this.q('UPDATE employees SET deleted = 1, active = 0, has_face = 0, version = version + 1, updated_at = ? WHERE id = ?').run(nowIso(), id);
+      this.q('DELETE FROM employee_faces WHERE employee_id = ?').run(id);
+      this.db.exec('COMMIT');
+    } catch (err) {
+      this.db.exec('ROLLBACK');
+      throw err;
+    }
+    this.reloadEmployees();
+  }
+
+  /** Imports many employees at once (one transaction, one sync run). */
+  importEmployees(rows) {
+    const ids = [];
+    this.db.exec('BEGIN');
+    try {
+      for (const row of rows) ids.push(this.createEmployee(row, { emit: false }));
+      this.db.exec('COMMIT');
+    } catch (err) {
+      this.db.exec('ROLLBACK');
+      throw err;
+    }
+    this.reloadEmployees();
+    return ids;
+  }
+
+  setFace(id, jpegBuffer) {
+    if (jpegBuffer) {
+      this.q(`INSERT INTO employee_faces (employee_id, image, updated_at) VALUES (?, ?, ?)
+        ON CONFLICT(employee_id) DO UPDATE SET image = excluded.image, updated_at = excluded.updated_at`).run(id, jpegBuffer, nowIso());
+    } else {
+      this.q('DELETE FROM employee_faces WHERE employee_id = ?').run(id);
+    }
+    this.q('UPDATE employees SET has_face = ?, version = version + 1, updated_at = ? WHERE id = ?').run(jpegBuffer ? 1 : 0, nowIso(), id);
+    this.reloadEmployees();
+  }
+
+  async getFace(id) {
+    const r = this.q('SELECT image FROM employee_faces WHERE employee_id = ?').get(id);
+    return r ? Buffer.from(r.image) : null;
+  }
+
+  async setEmployeeSync(employeeId, deviceId, data) {
+    const emp = this.employees.get(employeeId);
+    const current = emp ? emp.deviceSync : json((this.q('SELECT device_sync FROM employees WHERE id = ?').get(employeeId) || {}).device_sync, {});
+    const next = { ...current, [deviceId]: data };
+    this.q('UPDATE employees SET device_sync = ? WHERE id = ?').run(JSON.stringify(next), employeeId);
+    if (emp) emp.deviceSync = next;
+  }
+
+  // ---------- devices ----------
+  getDevice(id) { return this.devices.get(id) || null; }
+
+  saveDevice(d) {
+    if (d.id) {
+      this.q(`UPDATE devices SET name = ?, ip = ?, port = ?, username = ?, password = ?, direction = ?, status = '{}' WHERE id = ?`)
+        .run(d.name, d.ip, Number(d.port) || 80, d.username || 'admin', d.password ?? '', d.direction, d.id);
+      this.reloadDevices();
+      return d.id;
+    }
+    const id = newDeviceId();
+    this.q('INSERT INTO devices (id, name, ip, port, username, password, direction) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(id, d.name, d.ip, Number(d.port) || 80, d.username || 'admin', d.password ?? '', d.direction);
+    this.reloadDevices();
+    return id;
+  }
+
+  deleteDevice(id) {
+    this.q('DELETE FROM devices WHERE id = ?').run(id);
+    this.reloadDevices();
+  }
+
+  requestResync(id) {
+    this.q('UPDATE devices SET resync_requested_at = ? WHERE id = ?').run(Date.now(), id);
+    this.reloadDevices();
+  }
+
+  /** Used by the monitor and the sync engine. Status fields are stored as JSON. */
+  async updateDevice(id, data) {
+    const dev = this.devices.get(id);
+    if (!dev) return;
+    const { resyncDoneFor, ...status } = data;
+    if (resyncDoneFor !== undefined) {
+      this.q('UPDATE devices SET resync_done_for = ? WHERE id = ?').run(resyncDoneFor, id);
+      dev.resyncDoneFor = resyncDoneFor;
+    }
+    if (Object.keys(status).length) {
+      const row = this.q('SELECT status FROM devices WHERE id = ?').get(id);
+      const merged = { ...json(row && row.status, {}), ...status };
+      this.q('UPDATE devices SET status = ? WHERE id = ?').run(JSON.stringify(merged), id);
+      Object.assign(dev, status);
+    }
+  }
+
+  // ---------- attendance ----------
+  async getAttendance(employeeId, date) {
+    return mapAttendance(this.q('SELECT * FROM attendance WHERE employee_id = ? AND date = ?').get(employeeId, date));
+  }
+
+  async saveAttendance(rec) {
+    this.q(`INSERT INTO attendance (employee_id, date, employee_no, employee_name, check_in, check_in_device_id, check_in_device_name,
+        check_out, check_out_device_id, check_out_device_name, work_start, work_end, hourly_rate, late_minutes, early_minutes,
+        worked_minutes, manual, updated_at)
+      VALUES (:employee_id, :date, :employee_no, :employee_name, :check_in, :check_in_device_id, :check_in_device_name,
+        :check_out, :check_out_device_id, :check_out_device_name, :work_start, :work_end, :hourly_rate, :late_minutes,
+        :early_minutes, :worked_minutes, :manual, :updated_at)
+      ON CONFLICT (employee_id, date) DO UPDATE SET
+        employee_no = excluded.employee_no, employee_name = excluded.employee_name,
+        check_in = excluded.check_in, check_in_device_id = excluded.check_in_device_id, check_in_device_name = excluded.check_in_device_name,
+        check_out = excluded.check_out, check_out_device_id = excluded.check_out_device_id, check_out_device_name = excluded.check_out_device_name,
+        work_start = excluded.work_start, work_end = excluded.work_end, hourly_rate = excluded.hourly_rate,
+        late_minutes = excluded.late_minutes, early_minutes = excluded.early_minutes, worked_minutes = excluded.worked_minutes,
+        manual = excluded.manual, updated_at = excluded.updated_at`).run({
+      employee_id: rec.employeeId,
+      date: rec.date,
+      employee_no: rec.employeeNo ?? null,
+      employee_name: rec.employeeName ?? null,
+      check_in: iso(rec.checkIn),
+      check_in_device_id: rec.checkInDeviceId ?? null,
+      check_in_device_name: rec.checkInDeviceName ?? null,
+      check_out: iso(rec.checkOut),
+      check_out_device_id: rec.checkOutDeviceId ?? null,
+      check_out_device_name: rec.checkOutDeviceName ?? null,
+      work_start: rec.workStart ?? null,
+      work_end: rec.workEnd ?? null,
+      hourly_rate: Number(rec.hourlyRate) || 0,
+      late_minutes: rec.lateMinutes || 0,
+      early_minutes: rec.earlyMinutes || 0,
+      worked_minutes: rec.workedMinutes ?? null,
+      manual: rec.manual ? 1 : 0,
+      updated_at: nowIso(),
+    });
+    return this.getAttendance(rec.employeeId, rec.date);
+  }
+
+  listAttendance(from, to) {
+    return this.q('SELECT * FROM attendance WHERE date BETWEEN ? AND ? ORDER BY date DESC, employee_name COLLATE NOCASE')
+      .all(from, to).map(mapAttendance);
+  }
+
+  getAttendanceById(id) { return mapAttendance(this.q('SELECT * FROM attendance WHERE id = ?').get(id)); }
+
+  deleteAttendance(id) { this.q('DELETE FROM attendance WHERE id = ?').run(id); }
+
+  // ---------- events ----------
+  async eventExists(key) { return !!this.q('SELECT 1 FROM events WHERE id = ?').get(key); }
+
+  async saveEvent(key, d) {
+    this.q(`INSERT OR IGNORE INTO events (id, received_at, device_id, device_name, time, employee_no, employee_id, person_name, major, minor, action)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      key, nowIso(), d.deviceId ?? null, d.deviceName ?? null, iso(d.time), d.employeeNo ?? null, d.employeeId ?? null,
+      d.personName ?? null, d.major ?? null, d.minor ?? null, d.action,
+    );
+  }
+
+  listEvents(limit = 150) {
+    return this.q('SELECT * FROM events ORDER BY received_at DESC LIMIT ?').all(limit).map((r) => ({
+      id: r.id, receivedAt: r.received_at, deviceId: r.device_id, deviceName: r.device_name, time: r.time,
+      employeeNo: r.employee_no, employeeId: r.employee_id, personName: r.person_name, major: r.major, minor: r.minor, action: r.action,
+    }));
+  }
+
+  async pruneEvents(days = 90) {
+    this.q('DELETE FROM events WHERE received_at < ?').run(new Date(Date.now() - days * 86400000).toISOString());
+  }
+
+  // ---------- users ----------
+  countUsers() { return this.q('SELECT COUNT(*) AS n FROM users').get().n; }
+  listUsers() { return this.q('SELECT id, username, name, created_at FROM users ORDER BY id').all().map((r) => ({ ...r })); }
+  getUserByName(username) { const r = this.q('SELECT * FROM users WHERE username = ?').get(username); return r ? { ...r } : null; }
+  getUser(id) { const r = this.q('SELECT id, username, name FROM users WHERE id = ?').get(id); return r ? { ...r } : null; }
+  createUser({ username, name, passwordHash }) {
+    return Number(this.q('INSERT INTO users (username, name, password_hash) VALUES (?, ?, ?)').run(username, name || null, passwordHash).lastInsertRowid);
+  }
+  setUserPassword(id, passwordHash) { this.q('UPDATE users SET password_hash = ? WHERE id = ?').run(passwordHash, id); }
+  deleteUser(id) {
+    if (this.countUsers() <= 1) throw Object.assign(new Error('Oxirgi foydalanuvchini o\'chirib bo\'lmaydi'), { status: 400 });
+    this.q('DELETE FROM users WHERE id = ?').run(id);
+  }
+
+  // ---------- system ----------
+  async setBridgeStatus() { /* local mode: status is served directly by the API */ }
+}
+
+module.exports = { LocalStore, DEFAULT_SETTINGS, weekdayOf, mapAttendance };

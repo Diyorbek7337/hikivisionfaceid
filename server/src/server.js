@@ -4,7 +4,6 @@ const path = require('node:path');
 const express = require('express');
 const { extractEvent, normalizeEvent } = require('./hikvision');
 const { processScan, notifyScan } = require('./attendance');
-const { parseWebConfig } = require('./webconfig');
 
 function cleanIp(ip) {
   return String(ip || '').replace(/^::ffff:/, '');
@@ -76,7 +75,7 @@ function createPushHandler({ store, tz, telegram, log = console }) {
   }
 }
 
-function createServer({ store, cfg, telegram, log = console }) {
+function createServer({ store, cfg, telegram, api, log = console }) {
   const app = express();
   app.disable('x-powered-by');
 
@@ -90,18 +89,9 @@ function createServer({ store, cfg, telegram, log = console }) {
   // Terminal configured with an empty/other URL: identify it by IP.
   app.post('/ISAPI/*', raw, push);
 
-  // Web app (Next.js static export) + its Firebase config.
-  app.get('/firebase-config.json', (req, res) => {
-    if (!fs.existsSync(cfg.webConfigPath)) {
-      return res.status(404).json({ error: `Fayl topilmadi: ${cfg.webConfigPath}` });
-    }
-    res.set('Cache-Control', 'no-store');
-    try {
-      return res.json(parseWebConfig(fs.readFileSync(cfg.webConfigPath, 'utf8')));
-    } catch (err) {
-      return res.status(500).json({ error: `firebase-web-config.json o'qib bo'lmadi: ${err.message}` });
-    }
-  });
+  if (api) app.use('/api', api);
+
+  // Web app (Next.js static export).
   if (fs.existsSync(cfg.webDir)) {
     app.use(express.static(cfg.webDir, { extensions: ['html'] }));
     app.use((req, res) => {

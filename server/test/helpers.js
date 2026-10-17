@@ -2,7 +2,7 @@
 const http = require('node:http');
 const crypto = require('node:crypto');
 const { EventEmitter } = require('node:events');
-const { DEFAULT_SETTINGS } = require('../src/config');
+const { DEFAULT_SETTINGS } = require('../src/store');
 
 const md5 = (s) => crypto.createHash('md5').update(s).digest('hex');
 
@@ -18,7 +18,8 @@ class MemoryStore extends EventEmitter {
     this.faces = new Map();
     this.ready = Promise.resolve();
   }
-  addEmployee(e) { this.employees.set(e.id, { active: true, version: 1, workStart: '09:00', workEnd: '18:00', ...e }); }
+  addEmployee(e) { this.employees.set(e.id, { active: true, version: 1, ...e }); }
+  async getWorkHours() { return { start: '09:00', end: '18:00' }; }
   addDevice(d) { this.devices.set(d.id, { ...d }); }
   async findEmployeeByNo(no) {
     for (const e of this.employees.values()) if (!e.deleted && String(e.employeeNo) === String(no)) return e;

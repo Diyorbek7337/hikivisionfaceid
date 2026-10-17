@@ -10,12 +10,12 @@ function esc(s) {
 const money = (n) => new Intl.NumberFormat('en-US').format(Math.round(n));
 
 /**
- * Recomputes late / early-leave / worked minutes. `rec.checkIn` / `rec.checkOut` are Dates.
- * The same rules live in web/src/lib/attendance.js (used when an admin edits a record).
+ * Recomputes late / early-leave / worked minutes from rec.workStart / rec.workEnd (null on a day off).
+ * `rec.checkIn` / `rec.checkOut` are Dates.
  */
-function computeStats(rec, employee, settings, tz) {
-  const start = parseHHMM(employee.workStart);
-  const end = parseHHMM(employee.workEnd);
+function computeStats(rec, settings, tz) {
+  const start = parseHHMM(rec.workStart);
+  const end = parseHHMM(rec.workEnd);
   const ci = rec.checkIn || null;
   const co = rec.checkOut || null;
   let late = 0;
@@ -39,7 +39,7 @@ function salaryFor(rec) {
 
 /**
  * Applies one successful recognition to the attendance data.
- *   store: { findEmployeeByNo(no), getAttendance(employeeId, date), saveAttendance(rec) }
+ *   store: { findEmployeeByNo(no), getWorkHours(employee, date), getAttendance(employeeId, date), saveAttendance(rec) }
  * Returns { action, employee, record, time }.
  *   action: checkin | checkout | duplicate | repeat_in | unknown_employee | inactive_employee
  */
@@ -76,15 +76,16 @@ async function processScan(store, settings, tz, device, ev) {
     action = 'checkout';
   }
 
-  // Keep a copy of the employee details used for the calculation (reports stay correct after edits).
+  // Keep a copy of the details used for the calculation (reports stay correct after later edits).
+  const hours = await store.getWorkHours(employee, date);
   Object.assign(rec, {
     employeeNo: employee.employeeNo,
     employeeName: employee.name,
-    workStart: employee.workStart,
-    workEnd: employee.workEnd,
+    workStart: hours ? hours.start : null,
+    workEnd: hours ? hours.end : null,
     hourlyRate: Number(employee.hourlyRate) || 0,
   });
-  const record = computeStats(rec, employee, settings, tz);
+  const record = computeStats(rec, settings, tz);
   await store.saveAttendance(record);
   return { action, employee, record, time: t };
 }
@@ -106,7 +107,7 @@ function checkoutMessage(employee, record, tz) {
 }
 
 function lateAdminMessage(employee, record, tz) {
-  return `⏰ <b>Kechikish</b>\n\n👤 ${esc(employee.name)} (${esc(employee.employeeNo)})\n🕐 Keldi: ${localTime(record.checkIn, tz)} (ish boshlanishi ${esc(employee.workStart)})\n⚠️ ${formatDuration(record.lateMinutes)} kechikdi`;
+  return `⏰ <b>Kechikish</b>\n\n👤 ${esc(employee.name)} (${esc(employee.employeeNo)})\n🕐 Keldi: ${localTime(record.checkIn, tz)} (ish boshlanishi ${esc(record.workStart)})\n⚠️ ${formatDuration(record.lateMinutes)} kechikdi`;
 }
 
 /** Sends Telegram messages for a processed scan. Never throws. */

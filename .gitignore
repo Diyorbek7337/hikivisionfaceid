@@ -1,8 +1,5 @@
 node_modules/
 .env
-bridge/serviceAccountKey.json
-bridge/firebase-web-config.json
-*-debug.log
+server/data/
 web/.next/
 web/out/
-web/public/firebase-config.json

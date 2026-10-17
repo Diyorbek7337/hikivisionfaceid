@@ -1,57 +1,68 @@
 'use client';
+import { useState } from 'react';
 import Link from 'next/link';
-import { collection, query, where } from 'firebase/firestore';
-import { useApp } from '@/components/AppShell';
-import { useLiveQuery } from '@/lib/hooks';
-import { localDate, localTime, formatDuration } from '@/lib/time';
+import { useApi } from '@/lib/api';
+import { localTime, formatDuration } from '@/lib/time';
 import { DeviceStatus, ErrorBox } from '@/components/ui';
 
-export default function Dashboard() {
-  const { db } = useApp();
-  const today = localDate();
-  const [employees, , e1] = useLiveQuery(() => query(collection(db, 'employees'), where('active', '==', true)), []);
-  const [attendance, , e2] = useLiveQuery(() => query(collection(db, 'attendance'), where('date', '==', today)), [today]);
-  const [devices] = useLiveQuery(() => collection(db, 'devices'), []);
+const STATUS = {
+  present: <span className="pill ok">Keldi</span>,
+  absent: <span className="pill bad">Kelmagan</span>,
+  off: <span className="pill muted">Dam olish</span>,
+};
 
-  const byEmp = new Map(attendance.map((a) => [a.employeeId, a]));
-  const rows = employees.filter((e) => !e.deleted).sort((a, b) => a.name.localeCompare(b.name))
-    .map((emp) => ({ emp, att: byEmp.get(emp.id) }));
-  const came = rows.filter((r) => r.att && r.att.checkIn).length;
-  const late = rows.filter((r) => r.att && r.att.lateMinutes > 0).length;
-  const left = rows.filter((r) => r.att && r.att.checkOut).length;
-  const inside = rows.filter((r) => r.att && r.att.checkIn && !r.att.checkOut).length;
+export default function Dashboard() {
+  const { data, error } = useApi('/today', { refreshMs: 10000 });
+  const [filter, setFilter] = useState('all');
+  const [q, setQ] = useState('');
+  if (!data) return <><ErrorBox error={error} /><p className="muted">Yuklanmoqda…</p></>;
+
+  const rows = data.rows;
+  const working = rows.filter((r) => r.status !== 'off');
+  const count = (s) => rows.filter((r) => r.status === s).length;
+  const came = count('present') + count('late');
+  const inside = rows.filter((r) => r.attendance && r.attendance.checkIn && !r.attendance.checkOut).length;
+  const shown = rows
+    .filter((r) => filter === 'all' || r.status === filter || (filter === 'present' && r.status === 'late'))
+    .filter((r) => !q || r.employee.name.toLowerCase().includes(q.toLowerCase()));
+
+  const Stat = ({ n, label, cls, f }) => (
+    <button type="button" className={`stat ${filter === f ? 'selected' : ''}`} onClick={() => setFilter(filter === f ? 'all' : f)}>
+      <div className={`n ${cls || ''}`}>{n}</div><div className="l">{label}</div>
+    </button>
+  );
 
   return (
     <>
-      <h1>Bugun — {today}</h1>
-      <ErrorBox error={e1 || e2} />
+      <h1>Bugun — {data.date}</h1>
+      <ErrorBox error={error} />
       <div className="stats">
-        <div className="stat"><div className="n">{rows.length}</div><div className="l">Jami xodimlar</div></div>
-        <div className="stat"><div className="n ok">{came}</div><div className="l">Kelgan</div></div>
-        <div className="stat"><div className="n warn">{late}</div><div className="l">Kechikkan</div></div>
-        <div className="stat"><div className="n bad">{rows.length - came}</div><div className="l">Kelmagan</div></div>
-        <div className="stat"><div className="n">{inside}</div><div className="l">Hozir ishda</div></div>
-        <div className="stat"><div className="n">{left}</div><div className="l">Ketgan</div></div>
+        <Stat n={working.length} label="Ishda bo'lishi kerak" f="all" />
+        <Stat n={came} label="Kelgan" cls="ok" f="present" />
+        <Stat n={count('late')} label="Kechikkan" cls="warn" f="late" />
+        <Stat n={count('absent')} label="Kelmagan" cls="bad" f="absent" />
+        <div className="stat"><div className="n">{inside}</div><div className="l">Hozir ichkarida</div></div>
       </div>
       <div className="card">
+        <div className="row" style={{ marginBottom: 8 }}>
+          <label style={{ flex: 1, minWidth: 200 }}>Qidirish<input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Ism" /></label>
+        </div>
         <table>
-          <thead><tr><th>Xodim</th><th>ID</th><th>Ish vaqti</th><th>Keldi</th><th>Ketdi</th><th>Holat</th></tr></thead>
+          <thead><tr><th>Xodim</th><th>Lavozim</th><th>Ish vaqti</th><th>Keldi</th><th>Ketdi</th><th>Holat</th></tr></thead>
           <tbody>
-            {rows.map(({ emp, att }) => {
-              let status = <span className="pill bad">Kelmagan</span>;
-              if (att && att.checkIn) {
-                status = att.lateMinutes > 0
-                  ? <span className="pill warn">Kechikdi: {formatDuration(att.lateMinutes)}</span>
-                  : <span className="pill ok">O&apos;z vaqtida</span>;
-              } else if (att && att.checkOut) status = <span className="pill warn">Faqat chiqish</span>;
-              return (
-                <tr key={emp.id}>
-                  <td>{emp.name}</td><td>{emp.employeeNo}</td><td>{emp.workStart}–{emp.workEnd}</td>
-                  <td>{att ? localTime(att.checkIn) : ''}</td><td>{att ? localTime(att.checkOut) : ''}</td><td>{status}</td>
-                </tr>
-              );
-            })}
-            {!rows.length && <tr><td colSpan={6} className="muted">Hali xodim yo&apos;q. <Link href="/employees/edit/">Xodim qo&apos;shish</Link></td></tr>}
+            {shown.map(({ employee, hours, attendance, status }) => (
+              <tr key={employee.id}>
+                <td>{employee.name}</td>
+                <td className="muted">{employee.position}</td>
+                <td>{hours ? `${hours.start}–${hours.end}` : <span className="muted">—</span>}</td>
+                <td>{attendance ? localTime(attendance.checkIn) : ''}</td>
+                <td>{attendance ? localTime(attendance.checkOut) : ''}</td>
+                <td>{status === 'late'
+                  ? <span className="pill warn">Kechikdi: {formatDuration(attendance.lateMinutes)}</span>
+                  : STATUS[status]}</td>
+              </tr>
+            ))}
+            {!rows.length && <tr><td colSpan={6} className="muted">Hali xodim yo&apos;q. <Link href="/employees/import/">Excel&apos;dan import</Link> yoki <Link href="/employees/edit/">qo&apos;lda qo&apos;shish</Link></td></tr>}
           </tbody>
         </table>
       </div>
@@ -60,8 +71,8 @@ export default function Dashboard() {
         <table>
           <thead><tr><th>Nomi</th><th>IP</th><th>Holat</th></tr></thead>
           <tbody>
-            {devices.map((d) => <tr key={d.id}><td>{d.name}</td><td>{d.ip}</td><td><DeviceStatus device={d} /></td></tr>)}
-            {!devices.length && <tr><td colSpan={3} className="muted">Terminal qo&apos;shilmagan. <Link href="/devices/">Terminal qo&apos;shish</Link></td></tr>}
+            {data.devices.map((d) => <tr key={d.id}><td>{d.name}</td><td>{d.ip}</td><td><DeviceStatus device={d} /></td></tr>)}
+            {!data.devices.length && <tr><td colSpan={3} className="muted">Terminal qo&apos;shilmagan. <Link href="/devices/">Terminal qo&apos;shish</Link></td></tr>}
           </tbody>
         </table>
       </div>

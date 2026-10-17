@@ -1,95 +1,73 @@
 'use client';
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { doc } from 'firebase/firestore';
-import { initFirebase } from '@/lib/firebase';
-import { useLiveDoc } from '@/lib/hooks';
-import { toDate } from '@/lib/time';
+import { api } from '@/lib/api';
 import Login from './Login';
+import Setup from './Setup';
 
 const Ctx = createContext(null);
 export const useApp = () => useContext(Ctx);
 
-const DEFAULT_SETTINGS = { lateGraceMinutes: 5, debounceSeconds: 60, autoTimeSync: true };
-
 const LINKS = [
   ['/', 'Bugun'],
   ['/employees/', 'Xodimlar'],
+  ['/faces/', 'Yuzlar'],
   ['/reports/', 'Hisobot'],
+  ['/schedules/', 'Jadvallar'],
   ['/devices/', 'Terminallar'],
   ['/events/', 'Eventlar'],
   ['/settings/', 'Sozlamalar'],
 ];
 
 export default function AppShell({ children }) {
-  const [fb, setFb] = useState(null);
-  const [initError, setInitError] = useState(null);
-  const [user, setUser] = useState(undefined);
+  const [session, setSession] = useState(null);
+  const [status, setStatus] = useState(null);
+  const [error, setError] = useState('');
+  const pathname = usePathname();
 
-  useEffect(() => {
-    initFirebase().then(setFb).catch((e) => setInitError(e.message));
+  const refresh = useCallback(async () => {
+    try {
+      const s = await api('/session');
+      setSession(s);
+      setError('');
+      if (s.user) setStatus(await api('/status'));
+    } catch (e) {
+      setError(e.message);
+    }
   }, []);
 
   useEffect(() => {
-    if (!fb) return undefined;
-    return onAuthStateChanged(fb.auth, (u) => setUser(u || null));
-  }, [fb]);
+    refresh();
+    const onUnauthorized = () => setSession((s) => (s ? { ...s, user: null } : s));
+    window.addEventListener('davomat:unauthorized', onUnauthorized);
+    return () => window.removeEventListener('davomat:unauthorized', onUnauthorized);
+  }, [refresh]);
 
-  if (initError) {
-    return (
-      <main className="center"><div className="card" style={{ maxWidth: 560 }}>
-        <h1>Firebase sozlanmagan</h1>
-        <p className="bad">{initError}</p>
-        <p>Firebase Console → Project settings → General → Your apps → Web app konfiguratsiyasini
-          <code>bridge/firebase-web-config.json</code> fayliga JSON ko&apos;rinishida yozing va ko&apos;prikni qayta ishga tushiring.
-          Batafsil: README.</p>
-      </div></main>
-    );
+  if (error) {
+    return <main className="center"><div className="card"><h1>Xato</h1><p className="bad">{error}</p>
+      <button onClick={refresh}>Qayta urinish</button></div></main>;
   }
-  if (!fb || user === undefined) return <main className="center"><p className="muted">Yuklanmoqda…</p></main>;
-  if (!user) return <Login auth={fb.auth} />;
-  return <AdminGate fb={fb} user={user}>{children}</AdminGate>;
-}
+  if (!session) return <main className="center"><p className="muted">Yuklanmoqda…</p></main>;
+  if (session.needsSetup) return <Setup allowed={session.setupAllowed} onDone={refresh} />;
+  if (!session.user) return <Login onDone={refresh} />;
 
-function AdminGate({ fb, user, children }) {
-  const [adminDoc, loading] = useLiveDoc(() => doc(fb.db, 'admins', user.uid), [user.uid]);
-  const [settingsDoc] = useLiveDoc(() => (adminDoc ? doc(fb.db, 'settings', 'general') : null), [!!adminDoc]);
-  const [bridge] = useLiveDoc(() => (adminDoc ? doc(fb.db, 'system', 'bridge') : null), [!!adminDoc]);
-  const pathname = usePathname();
-
-  if (loading) return <main className="center"><p className="muted">Yuklanmoqda…</p></main>;
-  if (!adminDoc) {
-    return (
-      <main className="center"><div className="card" style={{ maxWidth: 560 }}>
-        <h1>Ruxsat yo&apos;q</h1>
-        <p>Siz <b>{user.email}</b> sifatida kirdingiz, lekin bu hisob administratorlar ro&apos;yxatida yo&apos;q.</p>
-        <p>Ko&apos;prikning <code>bridge/.env</code> faylidagi <code>ADMIN_EMAILS=</code> qatoriga shu emailni yozing
-          va ko&apos;prikni qayta ishga tushiring. Bu sahifa o&apos;zi yangilanadi.</p>
-        <button className="secondary" onClick={() => signOut(fb.auth)}>Chiqish</button>
-      </div></main>
-    );
+  async function logout() {
+    await api('/logout', { method: 'POST' }).catch(() => {});
+    refresh();
   }
 
-  const settings = { ...DEFAULT_SETTINGS, ...(settingsDoc || {}) };
-  const beat = bridge && toDate(bridge.heartbeatAt);
-  const bridgeOnline = beat && Date.now() - beat.getTime() < 7 * 60 * 1000;
-
+  const org = status && status.settings && status.settings.organizationName;
   return (
-    <Ctx.Provider value={{ ...fb, user, settings, bridge, bridgeOnline }}>
+    <Ctx.Provider value={{ user: session.user, status, reloadStatus: refresh }}>
       <header className="top"><nav className="nav">
-        <span className="brand">📷 Davomat
-          <span className={`pill ${bridgeOnline ? 'ok' : 'bad'}`} title="Ofis kompyuteridagi ko'prik dasturi">
-            {bridgeOnline ? 'Ko\'prik ishlayapti' : 'Ko\'prik o\'chiq'}
-          </span>
-        </span>
+        <span className="brand">📷 {org || 'Davomat'}</span>
         {LINKS.map(([href, label]) => (
           <Link key={href} href={href} className={(href === '/' ? pathname === '/' : pathname.startsWith(href)) ? 'active' : ''}>{label}</Link>
         ))}
-        <button className="secondary small" onClick={() => signOut(fb.auth)}>Chiqish</button>
+        <button className="secondary small" onClick={logout} title={session.user.username}>Chiqish</button>
       </nav></header>
-      <main>{children}</main>
+      <main>{status ? children : <p className="muted">Yuklanmoqda…</p>}</main>
     </Ctx.Provider>
   );
 }

@@ -1,11 +1,8 @@
 'use client';
 import { useState } from 'react';
-import {
-  addDoc, collection, deleteDoc, doc, serverTimestamp, updateDoc,
-} from 'firebase/firestore';
+import { api, useApi } from '@/lib/api';
 import { useApp } from '@/components/AppShell';
-import { useLiveQuery } from '@/lib/hooks';
-import { localDateTime, toDate } from '@/lib/time';
+import { localDateTime } from '@/lib/time';
 import { DeviceStatus, ErrorBox } from '@/components/ui';
 
 const DIRECTIONS = {
@@ -15,12 +12,15 @@ const DIRECTIONS = {
 };
 
 export default function Devices() {
-  const { db, bridge, bridgeOnline } = useApp();
-  const [devices, loading, error] = useLiveQuery(() => collection(db, 'devices'), []);
+  const { status } = useApp();
+  const { data: devices, error, reload } = useApi('/devices', { refreshMs: 5000 });
   const [editing, setEditing] = useState(null);
+  const serverIp = (status.ips && status.ips[0]) || 'SERVER_KOMPYUTER_IP';
 
-  const bridgeIp = bridge && bridge.ips && bridge.ips[0];
-  const bridgePort = (bridge && bridge.port) || 3000;
+  async function resync(d) {
+    await api(`/devices/${d.id}/resync`, { method: 'POST' });
+    reload();
+  }
 
   return (
     <>
@@ -28,75 +28,57 @@ export default function Devices() {
         <button onClick={() => setEditing({ name: '', ip: '', port: 80, username: 'admin', password: '', direction: 'in' })}>+ Terminal qo&apos;shish</button>
       </div>
       <ErrorBox error={error} />
-      {!bridgeOnline && <div className="flash warn">⚠️ Ko&apos;prik dasturi ishlamayapti. Ofis kompyuterida <code>start-windows.bat</code> ni ishga tushiring — busiz terminallar bilan aloqa bo&apos;lmaydi.</div>}
-
-      {devices.map((d) => (
+      {(devices || []).map((d) => (
         <div className="card" key={d.id}>
           <div className="row between">
             <h2 style={{ margin: 0 }}>{d.name} <DeviceStatus device={d} /></h2>
             <div className="row">
               <button className="secondary small" onClick={() => setEditing(d)}>Tahrirlash</button>
-              <button className="secondary small" title="Barcha xodim va yuzlarni terminalga qaytadan yuborish"
-                onClick={() => updateDoc(doc(db, 'devices', d.id), { resyncRequestedAt: serverTimestamp() })}>🔄 Qayta yuborish</button>
+              <button className="secondary small" title="Barcha xodim va yuzlarni terminalga qaytadan yuborish" onClick={() => resync(d)}>🔄 Qayta yuborish</button>
             </div>
           </div>
           <p>
             {DIRECTIONS[d.direction] || d.direction}<br />
-            IP: <code>{d.ip || '—'}</code>
+            IP: <code>{d.ip}</code>
             {d.model && <> · Model: {d.model}</>}
             {d.firmware && <span className="muted"> · {d.firmware}</span>}
             {d.lastCheckAt && <span className="muted"> · tekshirildi: {localDateTime(d.lastCheckAt)}</span>}
           </p>
           {d.online === false && <p className="bad">✗ {d.lastError}</p>}
           {d.clockFixedAt && <p className="muted">🕐 Terminal soati avtomatik to&apos;g&apos;rilangan: {localDateTime(d.clockFixedAt)}</p>}
-          {d.resyncRequestedAt && toDate(d.resyncRequestedAt) && d.resyncDoneFor !== toDate(d.resyncRequestedAt).getTime() && (
-            <p className="warn">⏳ Qayta yuborish navbatda…</p>
-          )}
+          {d.resyncRequestedAt && d.resyncDoneFor !== d.resyncRequestedAt && <p className="warn">⏳ Qayta yuborish navbatda…</p>}
           <details>
             <summary>Terminalda sozlash (HTTP Listening)</summary>
-            <p>Terminal web sahifasi (<code>http://{d.ip || 'TERMINAL_IP'}</code>) → <b>Configuration → Network → Advanced → HTTP Listening</b>, bo&apos;sh qatorga:</p>
+            <p>Terminal web sahifasi (<code>http://{d.ip}</code>) → <b>Configuration → Network → Advanced → HTTP Listening</b>, bo&apos;sh qatorga:</p>
             <table><tbody>
-              <tr><th>Destination IP or Host Name</th><td><code>{bridgeIp || 'KO‘PRIK KOMPYUTERI IP SI'}</code></td></tr>
+              <tr><th>Destination IP or Host Name</th><td><code>{serverIp}</code></td></tr>
               <tr><th>URL</th><td><code>/hik/{d.id}/event</code></td></tr>
-              <tr><th>Port</th><td><code>{bridgePort}</code></td></tr>
+              <tr><th>Port</th><td><code>{status.port}</code></td></tr>
               <tr><th>Protocol</th><td><code>HTTP</code></td></tr>
             </tbody></table>
-            <p className="hint">Keyin <b>Save</b>. Ko&apos;prik kompyuterining IP manzili o&apos;zgarmasligi kerak (routerda doimiy IP bering).</p>
+            <p className="hint">Keyin <b>Save</b>. Server kompyuterining IP manzili o&apos;zgarmasligi kerak (routerda doimiy IP bering).</p>
           </details>
         </div>
       ))}
-      {!loading && !devices.length && <div className="card muted">Hali terminal qo&apos;shilmagan.</div>}
-
-      {editing && <DeviceForm db={db} device={editing} onClose={() => setEditing(null)} />}
+      {devices && !devices.length && <div className="card muted">Hali terminal qo&apos;shilmagan.</div>}
+      {editing && <DeviceForm device={editing} onClose={(changed) => { setEditing(null); if (changed) reload(); }} />}
     </>
   );
 }
 
-function DeviceForm({ db, device, onClose }) {
-  const [form, setForm] = useState({ ...device });
+function DeviceForm({ device, onClose }) {
+  const [form, setForm] = useState({ ...device, password: '' });
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
 
   async function save(e) {
     e.preventDefault();
-    const data = {
-      name: form.name.trim() || 'Terminal',
-      ip: form.ip.trim(),
-      port: Number(form.port) || 80,
-      username: form.username.trim() || 'admin',
-      password: form.password,
-      direction: form.direction,
-    };
-    if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(data.ip) && !/^[\w.-]+$/.test(data.ip)) return setError('IP manzil noto\'g\'ri (masalan 192.168.31.68)');
     setBusy(true);
     try {
-      if (device.id) {
-        await updateDoc(doc(db, 'devices', device.id), { ...data, online: null, lastError: '' });
-      } else {
-        await addDoc(collection(db, 'devices'), { ...data, createdAt: serverTimestamp() });
-      }
-      onClose();
+      if (device.id) await api(`/devices/${device.id}`, { method: 'PUT', body: form });
+      else await api('/devices', { method: 'POST', body: form });
+      onClose(true);
     } catch (err) {
       setError(err.message);
       setBusy(false);
@@ -105,12 +87,12 @@ function DeviceForm({ db, device, onClose }) {
 
   async function remove() {
     if (!confirm(`"${device.name}" o'chirilsinmi? (Terminaldagi xodimlar o'chirilmaydi)`)) return;
-    await deleteDoc(doc(db, 'devices', device.id));
-    onClose();
+    await api(`/devices/${device.id}`, { method: 'DELETE' });
+    onClose(true);
   }
 
   return (
-    <div className="modal-back" onClick={onClose}>
+    <div className="modal-back" onClick={() => onClose(false)}>
       <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={save}>
         <h2>{device.id ? 'Terminalni tahrirlash' : 'Yangi terminal'}</h2>
         {error && <div className="flash error">{error}</div>}
@@ -119,15 +101,16 @@ function DeviceForm({ db, device, onClose }) {
           <label>IP manzil<input value={form.ip} onChange={set('ip')} placeholder="192.168.31.68" required /></label>
           <label>Port<input type="number" value={form.port} onChange={set('port')} /></label>
           <label>Login<input value={form.username} onChange={set('username')} autoComplete="off" /></label>
-          <label>Parol<input type="password" value={form.password} onChange={set('password')} autoComplete="new-password" placeholder="Terminal admin paroli" /></label>
+          <label>Parol<input type="password" value={form.password} onChange={set('password')} autoComplete="new-password"
+            placeholder={device.hasPassword ? 'o\'zgartirmaslik uchun bo\'sh qoldiring' : 'Terminal admin paroli'} /></label>
           <label>Yo&apos;nalish<select value={form.direction} onChange={set('direction')}>
             {Object.entries(DIRECTIONS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
           </select></label>
         </div>
-        <p className="hint">Login va parol — terminalning web sahifasiga kiradigan (SADP da aktivlashtirilgan) admin login/paroli. Ko&apos;prik ular orqali xodim va yuzlarni terminalga yozadi.</p>
+        <p className="hint">Login va parol — terminalning web sahifasiga kiradigan admin login/paroli. Ular orqali xodim va yuzlar terminalga yoziladi.</p>
         <div className="row">
           <button disabled={busy}>Saqlash</button>
-          <button type="button" className="secondary" onClick={onClose}>Bekor qilish</button>
+          <button type="button" className="secondary" onClick={() => onClose(false)}>Bekor qilish</button>
           {device.id && <button type="button" className="danger" style={{ marginLeft: 'auto' }} onClick={remove}>O&apos;chirish</button>}
         </div>
       </form>
