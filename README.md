@@ -1,272 +1,172 @@
-# 📷 Hikvision DS-K1T342EX Face Recognition Integration
+# 📷 Hikvision Face ID davomat tizimi
 
-## 📋 Umumiy ma'lumot
+Hikvision **DS-K1T342EX** yuz tanish terminallari uchun davomat serveri va admin panel.
 
-Bu qo'llanma Hikvision DS-K1T342EX yuz aniqlash terminalini mavjud davomat tizimiga ulash uchun.
+- Terminal xodimning yuzini taniydi va eventni internet orqali serverga yuboradi.
+- Server keldi/ketdi vaqtini yozadi, kechikish, erta ketish, ishlagan soat va kunlik summani hisoblaydi.
+- Admin panelda: bugungi holat, xodimlar, terminallar, oylik hisobot (Excel/CSV), eventlar jurnali.
+- Telegram (ixtiyoriy): xodimga "keldingiz/ketdingiz" xabari, kechikkanda adminga xabar.
 
-## 🔧 Tizim arxitekturasi
+Hech qanday tashqi baza (Firebase va h.k.) kerak emas — ma'lumotlar serverdagi bitta SQLite faylida saqlanadi.
 
 ```
-┌─────────────────────┐     HTTP Event      ┌─────────────────────┐
-│   Hikvision         │ ─────────────────▶  │  Hikvision Bridge   │
-│   DS-K1T342EX       │                     │  (Node.js Server)   │
-└─────────────────────┘                     └──────────┬──────────┘
-                                                       │
-                                                       ▼
-                                            ┌─────────────────────┐
-                                            │     Firebase        │
-                                            │    Firestore        │
-                                            └──────────┬──────────┘
-                                                       │
-                              ┌─────────────────────────┼─────────────────────────┐
-                              ▼                         ▼                         ▼
-                    ┌─────────────────┐      ┌─────────────────┐      ┌─────────────────┐
-                    │   Admin Panel   │      │  Telegram Bot   │      │    Xodimlar     │
-                    └─────────────────┘      └─────────────────┘      │  (Notification) │
-                                                                      └─────────────────┘
+ ┌──────────────────┐                          ┌────────────────────────────┐
+ │ Terminal 1       │──┐                       │  Server (VPS)              │
+ │ "Kirish"         │  │   HTTP event          │  ┌──────────────────────┐  │
+ └──────────────────┘  ├──────────────────────▶│  │ Davomat server       │  │
+ ┌──────────────────┐  │   (internet orqali)   │  │ + SQLite baza        │  │──▶ Telegram
+ │ Terminal 2       │──┘                       │  │ + Admin panel        │  │
+ │ "Chiqish"        │                          │  └──────────────────────┘  │
+ └──────────────────┘                          └────────────────────────────┘
 ```
 
-## 📦 O'rnatish
-
-### 1-qadam: Bridge serverni o'rnatish
-
-```bash
-cd hikvision-bridge
-npm install
-cp .env.example .env
-# .env faylini tahrirlang
-```
-
-### 2-qadam: .env sozlash
-
-```env
-PORT=3000
-FIREBASE_SERVICE_ACCOUNT_PATH=./serviceAccountKey.json
-BOT_TOKEN=your_telegram_bot_token
-ADMIN_TELEGRAM_IDS=123456789
-HIKVISION_USERNAME=admin
-HIKVISION_PASSWORD=your_password
-```
-
-### 3-qadam: Serverni ishga tushirish
-
-```bash
-npm start
-```
-
-Server `http://your-server-ip:3000` da ishga tushadi.
+Ikki terminal bo'lgani uchun eng qulay variant: **biri "Kirish", biri "Chiqish"**.
+Kirish terminalidagi skan = "keldi", chiqish terminalidagi skan = "ketdi".
+(Agar ikkala terminal ham bir xil vazifada bo'lsa, ularni "Avtomatik" rejimga qo'ying:
+kunning birinchi skani "keldi", keyingilari "ketdi".)
 
 ---
 
-## 🔌 Hikvision Terminal Sozlash
+## 1-qadam. Server tayyorlash
 
-### IVMS-4200 orqali sozlash
+Kerak bo'ladi:
 
-1. **IVMS-4200** dasturini oching
-2. **Device Management** → Terminalingizni tanlang
-3. **Remote Configuration** → **Network** → **Advanced**
+- **VPS** — Ubuntu 22.04/24.04, 1 GB RAM yetarli (masalan: Hetzner, DigitalOcean, yoki mahalliy hosting).
+- **Domen** (masalan `hik.sizningkompaniya.uz`) — DNS'da `A` yozuvi VPS IP manziliga qaratilgan bo'lsin.
+  Domen orqali admin panel avtomatik HTTPS (shifrlangan) bo'ladi. Arzon `.uz` domen yoki bepul
+  subdomen (masalan duckdns.org) ham yetadi.
 
-### HTTP Event Push sozlash
+VPS'ga kirib:
 
-1. **Event** → **HTTP Listening** bo'limiga kiring
-2. Quyidagilarni kiriting:
+```bash
+# Docker o'rnatish
+curl -fsSL https://get.docker.com | sh
+
+# Loyihani yuklab olish
+git clone https://github.com/Diyorbek7337/hikivisionfaceid.git
+cd hikivisionfaceid
+
+# Sozlamalar
+cp .env.example .env
+nano .env
+```
+
+`.env` da albatta to'ldiring:
+
+| O'zgaruvchi | Nima yoziladi |
+|---|---|
+| `DOMAIN` | `hik.sizningkompaniya.uz` |
+| `PUBLIC_URL` | `http://hik.sizningkompaniya.uz` |
+| `ADMIN_USERNAME` / `ADMIN_PASSWORD` | Admin panelga kirish uchun login va **kuchli** parol |
+| `SESSION_SECRET` | `openssl rand -hex 32` buyrug'i chiqargan satr |
+| `LATE_GRACE_MINUTES` | Necha daqiqagacha kechikish hisoblanmaydi (standart 5) |
+| `BOT_TOKEN`, `ADMIN_TELEGRAM_IDS` | Telegram uchun (ixtiyoriy, pastda 5-qadam) |
+
+Ishga tushirish:
+
+```bash
+docker compose up -d --build
+```
+
+Endi brauzerda `https://hik.sizningkompaniya.uz` ni oching → admin panelga kiring.
+
+> Firewall: VPS'da faqat 22, 80 va 443 portlar ochiq bo'lsin.
+
+---
+
+## 2-qadam. Admin panelda terminallarni qo'shish
+
+1. **Terminallar → + Terminal qo'shish**
+2. Birinchisi: Nomi `Kirish eshigi`, Yo'nalish **Kirish**
+3. Ikkinchisi: Nomi `Chiqish eshigi`, Yo'nalish **Chiqish**
+
+Har bir terminal uchun panel **alohida maxfiy URL** ko'rsatadi, masalan:
 
 | Parametr | Qiymat |
-|----------|--------|
-| **Listening Host Address** | `http://YOUR_SERVER_IP:3000` |
-| **URL** | `/ISAPI/Event/notification/alertStream` |
-| **Protocol** | HTTP |
+|---|---|
+| Destination IP / Domain | `hik.sizningkompaniya.uz` |
+| URL | `/hik/76e0eb20c56034807ea4f2a3/event` |
+| Port | `80` |
+| Protocol | `HTTP` |
 
-3. **Authentication** (ixtiyoriy):
-   - Username: `admin`
-   - Password: `admin123`
-
-### Terminal web interfeysi orqali
-
-1. Brauzerda terminal IP manzilini oching: `http://TERMINAL_IP`
-2. Login: admin / parol
-3. **Configuration** → **Network** → **Advanced Settings** → **HTTP Listening**
-4. Yuqoridagi parametrlarni kiriting
+Shu qiymatlarni keyingi qadamda terminalga kiritasiz. URL ichidagi kod — parol vazifasini bajaradi,
+uni boshqalarga bermang. Kerak bo'lsa "Yangi URL yaratish" tugmasi bilan almashtirasiz.
 
 ---
 
-## 👤 Xodimlarni ro'yxatdan o'tkazish
+## 3-qadam. Terminallarni sozlash (har ikkalasi uchun)
 
-### Hikvision terminalida
+### 3.1. Aktivlashtirish va tarmoq
 
-1. **IVMS-4200** → **Person Management**
-2. **Add Person** bosing
-3. Ma'lumotlarni kiriting:
-   - **Employee No**: Unikal raqam (masalan: 001, 002)
-   - **Name**: Xodim ismi
-   - **Card No**: Karta raqami (ixtiyoriy)
-4. **Face** bo'limida yuz rasmini qo'shing
-5. **OK** bosing
+1. Terminalni LAN kabel bilan ofis routeriga ulang.
+2. Kompyuterga Hikvision **SADP Tool** ni o'rnating — u terminalni tarmoqdan topadi.
+3. SADP'da: terminalni **aktivlashtiring** (admin parol qo'ying) va IP bering, masalan
+   `192.168.1.50` (ikkinchisi `192.168.1.51`). **Gateway** — routeringiz IP si,
+   **DNS** — `8.8.8.8`. DNS to'g'ri bo'lmasa terminal domenni topa olmaydi!
+4. Brauzerda `http://192.168.1.50` ni oching va admin bilan kiring.
 
-### Admin panelda (Firebase)
+### 3.2. Vaqt
 
-1. **Xodimlar** sahifasini oching
-2. Xodimni tahrirlang yoki yangi qo'shing
-3. **Hikvision Face ID** bo'limida:
-   - **Xodim ID**: Terminalda kiritilgan `Employee No`
-   - **Karta raqami**: Agar karta ishlatilsa
+**Configuration → System → Time Settings**:
+- Time Zone: **(GMT+05:00) Tashkent**
+- NTP: yoqing, server `pool.ntp.org`
 
-⚠️ **Muhim**: Hikvision terminaldagi `Employee No` va Admin paneldagi `Xodim ID` **bir xil** bo'lishi shart!
+Vaqt noto'g'ri bo'lsa, kechikishlar noto'g'ri hisoblanadi. Admin panel terminal soati farq
+qilsa ogohlantiradi.
 
----
+### 3.3. Serverga event yuborish (HTTP Listening)
 
-## 🔄 Ishlash jarayoni
+**Configuration → Network → Advanced Settings → HTTP Listening**
+(ba'zi proshivkalarda: *Network → Advanced → Alarm Host* / *HTTP Host*):
 
-### Xodim kelganda:
+- Destination IP or Domain: admin paneldagi qiymat
+- URL: admin paneldagi qiymat (**har terminal uchun o'zinikini** kiriting)
+- Port: `80`, Protocol: `HTTP`
+- **Save**
 
-```
-1. Xodim terminalga yuzini ko'rsatadi
-2. Terminal yuzni taniydi → Event yuboradi
-3. Bridge server eventni qabul qiladi
-4. Firebase'dan xodimni topadi
-5. Davomatni qayd etadi (Check-in)
-6. Xodimga Telegram xabar yuboradi
-7. Agar kechikgan bo'lsa - adminga xabar yuboradi
-```
+Tekshirish: admin panel → **Terminallar** sahifasida "Oxirgi aloqa" yashil vaqtni ko'rsatadi
+(terminal har bir necha daqiqada aloqa yuboradi yoki birinchi skandan keyin).
 
-### Xodim ketayotganda:
+### 3.4. Xodimlarni terminalga kiritish
 
-```
-1. Xodim yana terminalga yuzini ko'rsatadi
-2. Terminal → Bridge → Firebase
-3. Check-out qayd etiladi
-4. Ishlagan soat hisoblanadi
-5. Telegram orqali xabar yuboriladi
-```
+**User Management → Add** (yoki iVMS-4200 → *Person*):
+
+- **Employee No**: `001`, `002`, ... — har xodim uchun unikal raqam
+- **Name**: ism familiya
+- **Face**: terminal kamerasida rasmga oling yoki fayl yuklang
+
+⚠️ Har bir xodimni **ikkala terminalga ham** bir xil `Employee No` bilan kiriting.
+iVMS-4200 dasturida xodimni bir marta kiritib, ikkala terminalga birdaniga yuborish mumkin
+(*Access Control → Person → Apply to device*).
 
 ---
 
-## 📊 Davomat yozuvi (Firebase)
+## 4-qadam. Xodimlarni admin panelga kiritish
 
-```javascript
-{
-  date: "2024-01-15",
-  employeeId: "abc123",
-  employeeName: "Aziz Karimov",
-  
-  // Check-in
-  checkIn: Timestamp,
-  checkInMethod: "face_recognition",
-  checkInDevice: "Hikvision Terminal",
-  checkInPhoto: "https://...", // Agar terminal rasm yuborsa
-  
-  // Kechikish
-  isLate: false,
-  lateMinutes: 0,
-  
-  // Check-out
-  checkOut: Timestamp,
-  checkOutMethod: "face_recognition",
-  checkOutDevice: "Hikvision Terminal",
-  
-  // Ishlagan vaqt
-  workedHours: 8.5,
-  
-  // Erta ketish
-  isEarlyLeave: false,
-  earlyMinutes: 0
-}
-```
+**Xodimlar → + Xodim qo'shish**:
+
+- **Ism familiya**
+- **Terminal ID** — terminaldagi `Employee No` bilan **aynan bir xil** (`001` ≠ `1`)
+- **Ish boshlanishi / tugashi** — masalan `09:00` / `18:00`
+- **Soatbay stavka** — hisobotda summa chiqishi uchun (ixtiyoriy)
+- **Telegram chat ID** — xodimga xabar borishi uchun (ixtiyoriy)
+
+Qulay usul: avval xodimni faqat terminalga kiriting va yuzini skan qildiring.
+**Eventlar** sahifasida "Xodim topilmadi · Qo'shish" chiqadi — "Qo'shish" bosilsa forma
+Terminal ID bilan to'ldirilgan holda ochiladi.
 
 ---
 
-## 🔐 Xavfsizlik
+## 5-qadam. Telegram (ixtiyoriy)
 
-### API autentifikatsiyasi
+1. Telegram'da **@BotFather** → `/newbot` → token oling → `.env` dagi `BOT_TOKEN` ga yozing.
+2. O'zingiz botga `/start` yozing — bot sizning **chat ID** ingizni aytadi.
+   Uni `.env` dagi `ADMIN_TELEGRAM_IDS` ga yozing (bir nechta bo'lsa vergul bilan).
+3. `docker compose up -d` bilan qayta ishga tushiring.
+4. Har bir xodim botga `/start` yozadi → chat ID sini sizga yuboradi → siz uni xodim kartasiga kiritasiz.
 
-Bridge server Basic Auth qo'llab-quvvatlaydi:
+Xabarlar namunasi:
 
-```
-Authorization: Basic base64(username:password)
-```
-
-### Firewall sozlash
-
-Faqat Hikvision terminal IP dan kelgan so'rovlarga ruxsat bering:
-
-```bash
-# iptables misol
-iptables -A INPUT -p tcp -s TERMINAL_IP --dport 3000 -j ACCEPT
-iptables -A INPUT -p tcp --dport 3000 -j DROP
-```
-
----
-
-## 🧪 Test qilish
-
-### 1. Bridge server tekshirish
-
-```bash
-curl http://localhost:3000/
-# Javob: {"status":"OK","service":"Hikvision Face Recognition Bridge",...}
-```
-
-### 2. Test event yuborish
-
-```bash
-curl -X POST http://localhost:3000/ISAPI/Event/notification/alertStream \
-  -H "Content-Type: application/json" \
-  -d '{
-    "eventType": "AccessControllerEvent",
-    "AccessControllerEvent": {
-      "employeeNoString": "001",
-      "name": "Test User"
-    }
-  }'
-```
-
-### 3. Terminal eventini kuzatish
-
-```bash
-# Server loglarida:
-📥 ISAPI Event keldi
-👤 Yuz aniqlandi: Aziz Karimov
-✅ Aziz Karimov: checkin
-```
-
----
-
-## 🚨 Muammolarni hal qilish
-
-### Terminal ulanmayapti
-
-1. Tarmoq ulanishini tekshiring: `ping SERVER_IP`
-2. Port ochiqligini tekshiring: `telnet SERVER_IP 3000`
-3. Terminal sozlamalarini qayta tekshiring
-
-### Xodim topilmayapti
-
-1. Admin panelda `Xodim ID` to'g'ri kiritilganini tekshiring
-2. Hikvision terminaldagi `Employee No` bilan solishturing
-3. Bridge server loglarini tekshiring
-
-### Event kelmayapti
-
-1. Terminal web interfeysi → **Event** → **HTTP Listening** yoqilganini tekshiring
-2. Server IP to'g'ri kiritilganini tekshiring
-3. Firewall sozlamalarini tekshiring
-
----
-
-## 📱 Telegram xabarlari
-
-### Check-in (o'z vaqtida):
-```
-✅ Kelganingiz qayd etildi!
-
-👤 Aziz Karimov
-🕐 Vaqt: 08:55
-📷 Yuz orqali tasdiqlangan
-
-✅ O'z vaqtida!
-```
-
-### Check-in (kechikish):
 ```
 ✅ Kelganingiz qayd etildi!
 
@@ -274,52 +174,89 @@ curl -X POST http://localhost:3000/ISAPI/Event/notification/alertStream \
 🕐 Vaqt: 09:15
 📷 Yuz orqali tasdiqlangan
 
-⚠️ Kechikish: 10 daqiqa
+⚠️ Kechikish: 15 daq
 ```
 
-### Check-out:
 ```
-✅ Ketganingiz qayd etildi!
+👋 Ketganingiz qayd etildi!
 
 👤 Aziz Karimov
 🕐 Vaqt: 18:05
-⏱ Ishlagan: 9.17 soat
+⏱ Ishlagan: 8 soat 50 daq
 📷 Yuz orqali tasdiqlangan
-💰 Bugun: 229,250 so'm
+💰 Bugun: 220,833 so'm
 ```
 
 ---
 
-## 🌐 Production deployment
+## Hisob-kitob qoidalari
 
-### Railway/Render da deploy
+- **Keldi** — kirish terminalidagi kunning birinchi skani. Tushlikdan qaytish keldi vaqtini o'zgartirmaydi.
+- **Ketdi** — chiqish terminalidagi kunning oxirgi skani.
+- **Kechikish** — ish boshlanishidan keyin `LATE_GRACE_MINUTES` dan ko'p kechiksa, ish boshlanishidan hisoblanadi.
+- **Erta ketish** — ish tugashidan oldin ketsa.
+- **Ishlagan vaqt** = ketdi − keldi. **Summa** = ishlagan soat × soatbay stavka.
+- Bir xodimning `DEBOUNCE_SECONDS` (standart 60 s) ichidagi takroriy skanlari hisobga olinmaydi.
+- Terminal internet uzilganda eventlarni xotirada saqlab, keyin yuboradi — ular to'g'ri vaqt bilan
+  yoziladi (eski eventlar uchun Telegram xabari yuborilmaydi).
+- Noto'g'ri yozuvni **Hisobot** sahifasida ✕ tugmasi bilan o'chirish mumkin.
 
-1. GitHub ga push qiling
-2. Railway/Render da yangi servis yarating
-3. Environment variables qo'shing
-4. Deploy
+---
 
-### Nginx reverse proxy
+## Muammolarni hal qilish
 
-```nginx
-server {
-    listen 80;
-    server_name hikvision.example.com;
+| Belgi | Sabab va yechim |
+|---|---|
+| Terminallar sahifasida "Hali ulanmagan" | Terminalda HTTP Listening sozlamasi, DNS va Gateway ni tekshiring. Terminal internetga chiqa olishiga ishonch hosil qiling. |
+| Eventlar sahifasida "Xodim topilmadi" | Admin paneldagi Terminal ID terminaldagi Employee No bilan bir xil emas. |
+| "Tanilmadi / boshqa event" | Yuz tanilmagan yoki eshik eventi — bu normal holat. |
+| Kechikish noto'g'ri | Terminal vaqt zonasi va NTP sozlamasini tekshiring. |
+| Telegram xabar kelmayapti | `BOT_TOKEN` ni, xodim botga `/start` yozganini va chat ID to'g'ri kiritilganini tekshiring. |
 
-    location / {
-        proxy_pass http://localhost:3000;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-    }
-}
+Server loglari: `docker compose logs -f app`
+
+Serverni qo'lda sinash (terminalsiz):
+
+```bash
+curl -X POST https://hik.sizningkompaniya.uz/hik/<TERMINAL_URL_KODI>/event \
+  -H "Content-Type: application/json" \
+  -d '{"eventType":"AccessControllerEvent","dateTime":"2026-01-15T09:05:00+05:00",
+       "AccessControllerEvent":{"majorEventType":5,"subEventType":75,"employeeNoString":"001","name":"Test","serialNo":1}}'
 ```
 
 ---
 
-## 📞 Qo'shimcha yordam
+## Zaxira nusxa (backup)
 
-- Hikvision ISAPI dokumentatsiyasi: [https://www.hikvision.com/en/support/download/sdk/](https://www.hikvision.com/en/support/download/sdk/)
-- IVMS-4200 qo'llanmasi: Terminal bilan birga keladi
-#   h i k i v i s i o n f a c e i d  
- 
+Barcha ma'lumotlar server ichidagi `davomat.db` faylida (Docker `app_data` volume). Muntazam nusxa oling:
+
+```bash
+docker compose exec app node -e "new (require('node:sqlite').DatabaseSync)('/app/data/davomat.db').exec(\"VACUUM INTO '/app/data/backup.db'\")"
+docker compose cp app:/app/data/backup.db ~/davomat-$(date +%F).db
+docker compose exec app rm /app/data/backup.db
+```
+
+Yangilash: `git pull && docker compose up -d --build`
+
+---
+
+## Dasturchilar uchun
+
+```bash
+npm install
+cp .env.example .env   # ADMIN_PASSWORD ni kiriting
+npm start              # http://localhost:3000/admin
+npm test
+```
+
+Node.js 22.13+ kerak (o'rnatilgan `node:sqlite` ishlatiladi).
+
+| Fayl | Vazifasi |
+|---|---|
+| `src/server.js` | Ishga tushirish, `.env` o'qish |
+| `src/app.js` | HTTP marshrutlar, terminal eventlarini qabul qilish (`POST /hik/:token/event`) |
+| `src/hikvision.js` | Hikvision event formatini o'qish (multipart / JSON / XML) |
+| `src/attendance.js` | Keldi/ketdi, kechikish, ishlagan vaqt, Telegram matnlari |
+| `src/db.js` | SQLite jadvallar va so'rovlar |
+| `src/telegram.js` | Telegram bot (xabar yuborish, `/start` → chat ID) |
+| `src/admin/` | Admin panel sahifalari |
