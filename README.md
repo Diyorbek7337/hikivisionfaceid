@@ -27,7 +27,43 @@ kunning birinchi skani "keldi", keyingilari "ketdi".)
 
 ---
 
-## 1-qadam. Server tayyorlash
+## 🖥 Boshlash: o'z kompyuteringizni server qilish (Windows)
+
+Sinov va boshlang'ich ishlatish uchun eng oson yo'l. Kompyuter va ikkala terminal **bitta ofis
+tarmog'ida** (bitta routerga ulangan) bo'lishi kerak. Internet, domen, VPS kerak emas.
+
+1. **Node.js o'rnating:** https://nodejs.org → **LTS** versiya (22 yoki yangiroq) → o'rnating.
+2. **Loyihani yuklab oling:** GitHub'da **Code → Download ZIP** → masalan `C:\davomat` papkasiga oching
+   (yoki `git clone`).
+3. **Firewall'ni oching:** `firewall-ochish.bat` ustida sichqonchaning o'ng tugmasi →
+   **Run as administrator**. (Bir marta qilinadi.)
+4. **Serverni ishga tushiring:** `start-windows.bat` ni ikki marta bosing.
+   - Birinchi marta Bloknot ochiladi → `ADMIN_PASSWORD=` qatoriga parol yozing → saqlang → yoping.
+   - Qora oynada `Tarmoqdagi manzil: http://192.168.1.10:3000/admin` kabi qator chiqadi.
+   - **Bu oynani yopmang** — yopilsa server to'xtaydi.
+5. Brauzerda `http://localhost:3000/admin` ni oching → login `admin` va o'zingiz yozgan parol.
+6. Keyin pastdagi **2-, 3-, 4-qadamlarni** bajaring. Terminallar sahifasi terminalga nima yozishni
+   avtomatik ko'rsatadi: Destination IP = kompyuteringiz IP si, Port = `3000`.
+
+Muhim:
+
+- **Kompyuterga doimiy IP bering.** Routerda (DHCP reservation) yoki Windows tarmoq sozlamalarida.
+  Aks holda IP o'zgarib qolsa, terminallar serverni topa olmaydi.
+- **Uyqu rejimini o'chiring:** *Settings → System → Power → Sleep → Never*. Kompyuter uxlasa yoki
+  o'chsa, terminallar eventlarni o'z xotirasida saqlab turadi va kompyuter yoqilganda yuboradi
+  (keldi/ketdi vaqtlari to'g'ri yoziladi).
+- **Avtomatik ishga tushish:** `Win + R` → `shell:startup` → ochilgan papkaga `start-windows.bat`
+  uchun yorliq (shortcut) qo'ying.
+- Ma'lumotlar `data\davomat.db` faylida — vaqti-vaqti bilan nusxasini olib qo'ying.
+- Admin panelni ofisdagi boshqa kompyuter yoki telefondan ham ochish mumkin:
+  `http://<kompyuter IP si>:3000/admin`.
+
+Keyinroq VPS'ga ko'chmoqchi bo'lsangiz, pastdagi 1-qadamni bajaring va `data\davomat.db` faylini
+serverga ko'chiring — barcha ma'lumotlar saqlanib qoladi.
+
+---
+
+## 1-qadam. Server tayyorlash (internetdagi VPS)
 
 Kerak bo'ladi:
 
@@ -56,7 +92,7 @@ nano .env
 | O'zgaruvchi | Nima yoziladi |
 |---|---|
 | `DOMAIN` | `hik.sizningkompaniya.uz` |
-| `PUBLIC_URL` | `http://hik.sizningkompaniya.uz` |
+| `PUBLIC_URL` | `http://hik.sizningkompaniya.uz` (o'z kompyuteringizda bo'sh qoldiring) |
 | `ADMIN_USERNAME` / `ADMIN_PASSWORD` | Admin panelga kirish uchun login va **kuchli** parol |
 | `SESSION_SECRET` | `openssl rand -hex 32` buyrug'i chiqargan satr |
 | `LATE_GRACE_MINUTES` | Necha daqiqagacha kechikish hisoblanmaydi (standart 5) |

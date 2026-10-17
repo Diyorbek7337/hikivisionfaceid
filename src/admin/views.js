@@ -146,7 +146,7 @@ ${e.id ? `<div class="card"><form method="post" action="/admin/employees/${e.id}
   return layout({ title: 'Xodim', body, active: 'employees' });
 }
 
-function devicesPage({ devices, publicUrl, tz }) {
+function devicesPage({ devices, publicUrl, tz, isLanFallback = false }) {
   const host = publicUrl ? new URL(publicUrl) : null;
   const body = `<div class="row" style="justify-content:space-between"><h1>Terminallar</h1>
 <a class="btn" href="/admin/devices/new">+ Terminal qo'shish</a></div>
@@ -160,6 +160,7 @@ ${devices.map((d) => `<div class="card"><div class="row" style="justify-content:
 <tr><th>Port</th><td><code>${esc(host ? (host.port || (host.protocol === 'https:' ? '443' : '80')) : '80')}</code></td></tr>
 <tr><th>Protocol</th><td><code>${esc(host ? host.protocol.replace(':', '').toUpperCase() : 'HTTP')}</code></td></tr>
 </tbody></table></div>`).join('') || '<div class="card muted">Hali terminal qo\'shilmagan.</div>'}
+${isLanFallback ? `<div class="card muted">ℹ️ Server shu kompyuterda ishlayapti — terminallar shu kompyuterning lokal IP manziliga (<code>${esc(new URL(publicUrl).hostname)}</code>) yuboradi. Terminallar shu kompyuter bilan bitta tarmoqda bo'lishi kerak. Kompyuter IP si o'zgarmasligi uchun routerda unga doimiy IP bering.</div>` : ''}
 ${publicUrl ? '' : '<div class="card warn">⚠️ <code>PUBLIC_URL</code> sozlanmagan — .env faylida server manzilini kiriting.</div>'}`;
   return layout({ title: 'Terminallar', body, active: 'devices' });
 }

@@ -3,6 +3,7 @@ const express = require('express');
 const views = require('./views');
 const { localDate, localTime, parseHHMM } = require('../time');
 const { salaryFor } = require('../attendance');
+const { lanAddresses } = require('../net');
 
 function createAdminRouter({ repo, cfg, auth }) {
   const r = express.Router();
@@ -77,7 +78,12 @@ function createAdminRouter({ repo, cfg, auth }) {
 
   // ---------- Devices ----------
   r.get('/devices', (req, res) => {
-    res.send(views.devicesPage({ devices: repo.listDevices(), publicUrl: cfg.publicUrl, tz: cfg.timezone }));
+    // Without PUBLIC_URL (e.g. running on an office PC) show this computer's local network address.
+    const lan = lanAddresses()[0];
+    const publicUrl = cfg.publicUrl || (lan ? `http://${lan}:${cfg.port}` : '');
+    res.send(views.devicesPage({
+      devices: repo.listDevices(), publicUrl, tz: cfg.timezone, isLanFallback: !cfg.publicUrl && !!lan,
+    }));
   });
   r.get('/devices/new', (req, res) => res.send(views.deviceFormPage({ device: { direction: 'in' } })));
   r.get('/devices/:id', (req, res) => {
