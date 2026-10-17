@@ -1,0 +1,19 @@
+{
+  "name": "hikvision-bridge",
+  "version": "2.0.0",
+  "description": "Hikvision Face ID terminallari va Firebase davomat web app'i orasidagi ko'prik",
+  "main": "src/index.js",
+  "private": true,
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node --test test/*.test.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "fast-xml-parser": "^5.11.2",
+    "firebase-admin": "^14.5.0"
+  }
+}

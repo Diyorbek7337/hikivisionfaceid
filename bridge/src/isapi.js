@@ -1,0 +1,261 @@
+'use strict';
+/**
+ * Small Hikvision ISAPI client (HTTP Digest auth) for access-control terminals
+ * (DS-K1T331 / DS-K1T342 / DS-K1T671 ... "MinMoe" series).
+ */
+const crypto = require('node:crypto');
+const { XMLParser } = require('fast-xml-parser');
+
+const xml = new XMLParser({ ignoreAttributes: true, parseTagValue: false, removeNSPrefix: true });
+const md5 = (s) => crypto.createHash('md5').update(s).digest('hex');
+
+class IsapiError extends Error {
+  constructor(message, { status, subStatusCode, errorMsg } = {}) {
+    super(message);
+    this.status = status;
+    this.subStatusCode = subStatusCode;
+    this.errorMsg = errorMsg;
+  }
+}
+
+function parseChallenge(header) {
+  const out = {};
+  const re = /(\w+)=(?:"([^"]*)"|([^,\s]+))/g;
+  let m;
+  while ((m = re.exec(header || ''))) out[m[1].toLowerCase()] = m[2] !== undefined ? m[2] : m[3];
+  return out;
+}
+
+class IsapiClient {
+  constructor({ host, port = 80, username, password, timeoutMs = 15000 }) {
+    this.base = `http://${host}${Number(port) && Number(port) !== 80 ? `:${port}` : ''}`;
+    this.username = username || 'admin';
+    this.password = password || '';
+    this.timeoutMs = timeoutMs;
+    this.challenge = null;
+    this.nc = 0;
+  }
+
+  authHeader(method, uri) {
+    const c = this.challenge;
+    if (!c) return null;
+    if (c.scheme === 'basic') {
+      return `Basic ${Buffer.from(`${this.username}:${this.password}`).toString('base64')}`;
+    }
+    this.nc += 1;
+    const nc = this.nc.toString(16).padStart(8, '0');
+    const cnonce = crypto.randomBytes(8).toString('hex');
+    const ha1 = md5(`${this.username}:${c.realm}:${this.password}`);
+    const ha2 = md5(`${method}:${uri}`);
+    const qop = c.qop ? c.qop.split(',').map((s) => s.trim()).find((q) => q === 'auth') || 'auth' : null;
+    const response = qop
+      ? md5(`${ha1}:${c.nonce}:${nc}:${cnonce}:${qop}:${ha2}`)
+      : md5(`${ha1}:${c.nonce}:${ha2}`);
+    let h = `Digest username="${this.username}", realm="${c.realm}", nonce="${c.nonce}", uri="${uri}", algorithm=MD5, response="${response}"`;
+    if (qop) h += `, qop=${qop}, nc=${nc}, cnonce="${cnonce}"`;
+    if (c.opaque) h += `, opaque="${c.opaque}"`;
+    return h;
+  }
+
+  async send(method, uri, body, headers) {
+    const h = { ...headers };
+    const auth = this.authHeader(method, uri);
+    if (auth) h.Authorization = auth;
+    return fetch(this.base + uri, { method, headers: h, body, signal: AbortSignal.timeout(this.timeoutMs) });
+  }
+
+  /** Raw request with digest auth; returns { status, text, contentType }. */
+  async request(method, uri, { body, contentType } = {}) {
+    const headers = contentType ? { 'Content-Type': contentType } : {};
+    let res;
+    try {
+      res = await this.send(method, uri, body, headers);
+      if (res.status === 401) {
+        await res.arrayBuffer().catch(() => {});
+        const www = res.headers.get('www-authenticate') || '';
+        if (/^digest/i.test(www)) this.challenge = { scheme: 'digest', ...parseChallenge(www) };
+        else if (/^basic/i.test(www)) this.challenge = { scheme: 'basic' };
+        else throw new IsapiError('Terminal autentifikatsiya turini qaytarmadi', { status: 401 });
+        this.nc = 0;
+        res = await this.send(method, uri, body, headers);
+      }
+    } catch (err) {
+      if (err instanceof IsapiError) throw err;
+      const reason = err.name === 'TimeoutError' ? 'javob bermadi (timeout)' : (err.cause && err.cause.code) || err.message;
+      const e = new IsapiError(`Terminalga ulanib bo'lmadi: ${reason}`);
+      e.connection = true;
+      throw e;
+    }
+    const text = await res.text();
+    if (res.status === 401) throw new IsapiError('Login yoki parol noto\'g\'ri (401)', { status: 401 });
+    return { status: res.status, text, contentType: res.headers.get('content-type') || '' };
+  }
+
+  /** Parses a JSON or XML ISAPI response into an object. */
+  static parse(text) {
+    const t = (text || '').trim();
+    if (t.startsWith('{')) {
+      try { return JSON.parse(t); } catch { return null; }
+    }
+    if (t.startsWith('<')) {
+      try {
+        const o = xml.parse(t);
+        const k = Object.keys(o).find((x) => x !== '?xml');
+        return k ? o[k] : null;
+      } catch { return null; }
+    }
+    return null;
+  }
+
+  static check(res) {
+    const data = IsapiClient.parse(res.text) || {};
+    const statusCode = Number(data.statusCode ?? (res.status < 300 ? 1 : 0));
+    if (res.status >= 300 || (statusCode && statusCode !== 1)) {
+      const sub = data.subStatusCode || '';
+      const msg = data.errorMsg || data.statusString || `HTTP ${res.status}`;
+      throw new IsapiError(`${msg}${sub ? ` (${sub})` : ''}`, { status: res.status, subStatusCode: sub, errorMsg: data.errorMsg });
+    }
+    return data;
+  }
+
+  async json(method, uri, obj) {
+    const res = await this.request(method, uri, obj === undefined ? {} : {
+      body: JSON.stringify(obj), contentType: 'application/json',
+    });
+    return IsapiClient.check(res);
+  }
+
+  // ---------- device ----------
+
+  async deviceInfo() {
+    const res = await this.request('GET', '/ISAPI/System/deviceInfo');
+    const d = IsapiClient.check(res);
+    return {
+      name: d.deviceName || '', model: d.model || '', serialNumber: d.serialNumber || '',
+      firmware: [d.firmwareVersion, d.firmwareReleasedDate].filter(Boolean).join(' '), mac: d.macAddress || '',
+    };
+  }
+
+  /** Returns the terminal clock as a Date (its localTime carries the offset). */
+  async getTime() {
+    const res = await this.request('GET', '/ISAPI/System/time');
+    const d = IsapiClient.check(res);
+    return { localTime: d.localTime, timeZone: d.timeZone, timeMode: d.timeMode, date: d.localTime ? new Date(d.localTime) : null };
+  }
+
+  async setTime(localIsoNoOffset, hikTimeZone) {
+    const body = `<?xml version="1.0" encoding="UTF-8"?><Time version="2.0" xmlns="http://www.isapi.org/ver20/XMLSchema">`
+      + `<timeMode>manual</timeMode><localTime>${localIsoNoOffset}</localTime><timeZone>${hikTimeZone}</timeZone></Time>`;
+    const res = await this.request('PUT', '/ISAPI/System/time', { body, contentType: 'application/xml' });
+    return IsapiClient.check(res);
+  }
+
+  // ---------- persons ----------
+
+  static userInfo(employee) {
+    return {
+      employeeNo: String(employee.employeeNo),
+      name: String(employee.name || '').slice(0, 32),
+      userType: 'normal',
+      Valid: { enable: true, beginTime: '2020-01-01T00:00:00', endTime: '2037-12-31T23:59:59', timeType: 'local' },
+      doorRight: '1',
+      RightPlan: [{ doorNo: 1, planTemplateNo: '1' }],
+    };
+  }
+
+  /** Adds the person, or updates it when the employee number already exists. */
+  async upsertUser(employee) {
+    const UserInfo = IsapiClient.userInfo(employee);
+    try {
+      await this.json('POST', '/ISAPI/AccessControl/UserInfo/Record?format=json', { UserInfo });
+      return 'added';
+    } catch (err) {
+      if (!/exist/i.test(`${err.subStatusCode} ${err.message}`)) throw err;
+    }
+    await this.json('PUT', '/ISAPI/AccessControl/UserInfo/Modify?format=json', { UserInfo });
+    return 'updated';
+  }
+
+  /** Deletes the person (and its face). Missing person is not an error. */
+  async deleteUser(employeeNo) {
+    try {
+      await this.json('PUT', '/ISAPI/AccessControl/UserInfo/Delete?format=json', {
+        UserInfoDelCond: { EmployeeNoList: [{ employeeNo: String(employeeNo) }] },
+      });
+    } catch (err) {
+      if (/not\s*exist|notExist|noExist/i.test(`${err.subStatusCode} ${err.message}`)) return;
+      throw err;
+    }
+  }
+
+  async countUsers() {
+    const d = await this.json('GET', '/ISAPI/AccessControl/UserInfo/Count?format=json');
+    return Number(d.UserInfoCount && d.UserInfoCount.userNumber) || 0;
+  }
+
+  // ---------- faces ----------
+
+  static multipart(fields, file) {
+    const boundary = `----HikBridge${crypto.randomBytes(8).toString('hex')}`;
+    const chunks = [];
+    for (const [name, value] of Object.entries(fields)) {
+      chunks.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\n`
+        + `Content-Type: application/json\r\n\r\n${value}\r\n`));
+    }
+    if (file) {
+      chunks.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="${file.name}"; filename="${file.filename}"\r\n`
+        + `Content-Type: ${file.contentType}\r\nContent-Length: ${file.data.length}\r\n\r\n`));
+      chunks.push(file.data, Buffer.from('\r\n'));
+    }
+    chunks.push(Buffer.from(`--${boundary}--\r\n`));
+    return { body: Buffer.concat(chunks), contentType: `multipart/form-data; boundary=${boundary}` };
+  }
+
+  /** Uploads (or replaces) the face photo of a person. `jpeg` is a Buffer. */
+  async setFace(employeeNo, jpeg) {
+    const meta = JSON.stringify({ faceLibType: 'blackFD', FDID: '1', FPID: String(employeeNo) });
+    const file = { name: 'img', filename: 'face.jpg', contentType: 'image/jpeg', data: jpeg };
+    // FDSetUp adds or replaces; some firmware only accepts FaceDataRecord for new faces.
+    let firstErr;
+    try {
+      IsapiClient.check(await this.request('PUT', '/ISAPI/Intelligent/FDLib/FDSetUp?format=json',
+        IsapiClient.multipart({ FaceDataRecord: meta }, file)));
+      return;
+    } catch (err) {
+      if (err.status === 401 || err.connection) throw err;
+      firstErr = err;
+    }
+    try {
+      IsapiClient.check(await this.request('POST', '/ISAPI/Intelligent/FDLib/FaceDataRecord?format=json',
+        IsapiClient.multipart({ FaceDataRecord: meta }, file)));
+    } catch (err) {
+      // The fallback is not supported, or the face exists: the first error explains the problem better.
+      if (err.status === 404 || /exist|notSupport/i.test(`${err.subStatusCode} ${err.message}`)) throw firstErr;
+      throw err;
+    }
+  }
+
+  async deleteFace(employeeNo) {
+    try {
+      await this.json('PUT', '/ISAPI/Intelligent/FDLib/FDSearch/Delete?format=json&FDID=1&faceLibType=blackFD', {
+        FPID: [{ value: String(employeeNo) }],
+      });
+    } catch (err) {
+      if (err.status === 401 || err.connection) throw err;
+      // no face stored -> fine
+    }
+  }
+}
+
+/** Human readable explanation for common terminal error codes. */
+function explainError(err) {
+  const s = `${err && err.subStatusCode} ${err && err.message}`;
+  if (/faceQuality|lowScore|noFace|FaceImage|face.*(fail|invalid)|modelingFailed|picture/i.test(s)) {
+    return 'Rasmda yuz aniq ko\'rinmayapti — yorug\', to\'g\'ridan olingan boshqa rasm yuklang';
+  }
+  if (/pictureSize|tooLarge|over.*size/i.test(s)) return 'Rasm hajmi juda katta';
+  if (/401|parol/i.test(s)) return 'Terminal login yoki paroli noto\'g\'ri';
+  return (err && err.message) || String(err);
+}
+
+module.exports = { IsapiClient, IsapiError, explainError, parseChallenge };

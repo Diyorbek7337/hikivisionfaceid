@@ -1,6 +1,8 @@
 node_modules/
 .env
-data/
-*.db
-*.db-wal
-*.db-shm
+bridge/serviceAccountKey.json
+bridge/firebase-web-config.json
+*-debug.log
+web/.next/
+web/out/
+web/public/firebase-config.json
