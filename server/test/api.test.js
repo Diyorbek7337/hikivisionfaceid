@@ -202,6 +202,15 @@ test('security: sessions are revoked on logout/password change; bad cookies; dev
     assert.equal((await call('POST', '/api/devices', { name: 'x', ip, password: 'p' })).status, 400, ip);
   }
   assert.equal((await call('POST', '/api/employees', { name: 'X', hourlyRate: '1e400' })).body.hourlyRate, 0);
+  // personal schedule: times are checked like a shared schedule
+  const badDays = await call('POST', '/api/employees', { name: 'Y', personalSchedule: { days: { 1: { start: '12:00', end: '09:00' } } } });
+  assert.equal(badDays.status, 400);
+  const own = await call('POST', '/api/employees', { name: 'Z', personalSchedule: { days: { 2: { start: '9:00', end: '11:30' } } } });
+  assert.equal(own.status, 200);
+  assert.deepEqual(own.body.personalSchedule.days['2'], { start: '09:00', end: '11:30' });
+  assert.equal(own.body.personalSchedule.days['1'], null);
+  const scheds = (await call('GET', '/api/schedules')).body;
+  assert.equal(scheds[0].employees, 1, 'only X uses the default schedule');
 });
 
 test('first-run setup is refused when not addressed as localhost (DNS rebinding)', async (t) => {

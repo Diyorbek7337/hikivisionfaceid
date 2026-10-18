@@ -140,6 +140,9 @@ function openDatabase(file) {
 function migrate(db) {
   const cols = db.prepare('PRAGMA table_info(users)').all().map((c) => c.name);
   if (!cols.includes('session_version')) db.exec('ALTER TABLE users ADD COLUMN session_version INTEGER NOT NULL DEFAULT 0');
+  const empCols = db.prepare('PRAGMA table_info(employees)').all().map((c) => c.name);
+  // JSON {"days": {...}} when the employee has their own schedule; NULL = uses schedule_id
+  if (!empCols.includes('personal_schedule')) db.exec('ALTER TABLE employees ADD COLUMN personal_schedule TEXT');
 }
 
 const newDeviceId = () => crypto.randomBytes(10).toString('hex');

@@ -38,8 +38,9 @@ th { font-size: 13px; color: var(--muted); font-weight: 600; }
 .pill.muted { background: var(--bg); }
 .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
 label { display: block; font-size: 13px; color: var(--muted); }
+label.inline { display: flex; gap: 6px; align-items: center; color: var(--text); font-size: 14px; }
 input, select { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--text); font: inherit; margin-top: 2px; }
-input[type=checkbox] { width: auto; margin: 0; }
+input[type=checkbox], input[type=radio] { width: auto; margin: 0; }
 button, .btn { display: inline-block; padding: 8px 14px; border-radius: 8px; border: 1px solid var(--brand); background: var(--brand); color: var(--brand-text); font: inherit; cursor: pointer; white-space: nowrap; }
 button:disabled { opacity: .6; cursor: default; }
 .btn.secondary, button.secondary { background: transparent; color: var(--brand); }

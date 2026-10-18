@@ -1,19 +1,19 @@
 'use client';
 import { useState } from 'react';
 import { api, useApi } from '@/lib/api';
-import { ErrorBox, WEEKDAYS, scheduleSummary } from '@/components/ui';
+import { ErrorBox, scheduleSummary } from '@/components/ui';
+import DaysEditor, { blankDays } from '@/components/DaysEditor';
 
 export default function Schedules() {
   const { data, error, reload } = useApi('/schedules');
   const [editing, setEditing] = useState(null);
-  const blank = () => ({
-    name: '', days: Object.fromEntries(WEEKDAYS.map(([k]) => [k, k === '0' ? null : { start: '08:00', end: '17:00' }])),
-  });
+  const blank = () => ({ name: '', days: blankDays() });
 
   return (
     <>
       <div className="row between"><h1>Ish jadvallari</h1><button onClick={() => setEditing(blank())}>+ Jadval qo&apos;shish</button></div>
-      <p className="muted">Har bir xodimga jadval biriktiriladi (Xodimlar → Tahrirlash). Masalan: &quot;1-smena&quot;, &quot;2-smena&quot;, &quot;Ma&apos;muriyat&quot;, &quot;Qorovullar&quot;.
+      <p className="muted">Har bir xodimga jadval biriktiriladi (Xodimlar → Tahrirlash). Faqat o&apos;ziga xos kunlari keladigan xodimga
+        (masalan, o&apos;qituvchi) xodim kartasining o&apos;zida &quot;shaxsiy jadval&quot; berish mumkin. Masalan: &quot;1-smena&quot;, &quot;2-smena&quot;, &quot;Ma&apos;muriyat&quot;, &quot;Qorovullar&quot;.
         Dam olish kunlari kechikish va kelmaganlik hisoblanmaydi. Birinchi jadval — jadvali tanlanmagan xodimlar uchun standart.</p>
       <ErrorBox error={error} />
       <div className="card">
@@ -41,11 +41,6 @@ function ScheduleForm({ schedule, onClose }) {
   const [days, setDays] = useState(() => JSON.parse(JSON.stringify(schedule.days)));
   const [error, setError] = useState('');
 
-  const setDay = (k, v) => setDays((d) => ({ ...d, [k]: v }));
-  function copyMonday() {
-    const mon = days['1'];
-    setDays((d) => Object.fromEntries(Object.entries(d).map(([k, v]) => [k, v && mon ? { ...mon } : v])));
-  }
 
   async function save(e) {
     e.preventDefault();
@@ -74,23 +69,7 @@ function ScheduleForm({ schedule, onClose }) {
         <h2>{schedule.id ? 'Jadvalni tahrirlash' : 'Yangi jadval'}</h2>
         {error && <div className="flash error">{error}</div>}
         <p><label>Nomi<input value={name} onChange={(e) => setName(e.target.value)} placeholder="Masalan: 1-smena" required /></label></p>
-        <table>
-          <thead><tr><th>Kun</th><th>Ish kuni</th><th>Boshlanishi</th><th>Tugashi</th></tr></thead>
-          <tbody>
-            {WEEKDAYS.map(([k, label]) => {
-              const d = days[k];
-              return (
-                <tr key={k}>
-                  <td>{label}</td>
-                  <td><input type="checkbox" checked={!!d} onChange={(e) => setDay(k, e.target.checked ? { start: '08:00', end: '17:00' } : null)} /></td>
-                  <td>{d ? <input type="time" value={d.start} onChange={(e) => setDay(k, { ...d, start: e.target.value })} required /> : <span className="muted">dam olish</span>}</td>
-                  <td>{d && <input type="time" value={d.end} onChange={(e) => setDay(k, { ...d, end: e.target.value })} required />}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-        <p><button type="button" className="secondary small" onClick={copyMonday}>Dushanba vaqtini barcha ish kunlariga nusxalash</button></p>
+        <DaysEditor days={days} onChange={setDays} />
         <div className="row">
           <button>Saqlash</button>
           <button type="button" className="secondary" onClick={() => onClose(false)}>Bekor qilish</button>

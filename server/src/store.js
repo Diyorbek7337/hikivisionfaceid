@@ -37,6 +37,7 @@ function mapEmployee(r) {
     phone: r.phone || '',
     telegramChatId: r.telegram_chat_id || '',
     scheduleId: r.schedule_id,
+    personalSchedule: json(r.personal_schedule, null),
     hourlyRate: r.hourly_rate,
     active: bool(r.active),
     deleted: bool(r.deleted),
@@ -153,8 +154,10 @@ class LocalStore extends EventEmitter {
   deleteSchedule(id) {
     const first = this.listSchedules()[0];
     // Employees without an explicit schedule use the first one.
-    const implicit = first && first.id === id ? this.q('SELECT COUNT(*) AS n FROM employees WHERE schedule_id IS NULL AND deleted = 0').get().n : 0;
-    const used = this.q('SELECT COUNT(*) AS n FROM employees WHERE schedule_id = ? AND deleted = 0').get(id).n + implicit;
+    // Employees with a personal schedule do not use any shared one.
+    const implicit = first && first.id === id
+      ? this.q('SELECT COUNT(*) AS n FROM employees WHERE schedule_id IS NULL AND personal_schedule IS NULL AND deleted = 0').get().n : 0;
+    const used = this.q('SELECT COUNT(*) AS n FROM employees WHERE schedule_id = ? AND personal_schedule IS NULL AND deleted = 0').get(id).n + implicit;
     if (used) throw Object.assign(new Error(`Bu jadval ${used} ta xodimga biriktirilgan`), { status: 400 });
     if (this.q('SELECT COUNT(*) AS n FROM schedules').get().n <= 1) {
       throw Object.assign(new Error('Kamida bitta jadval qolishi kerak'), { status: 400 });
@@ -162,10 +165,17 @@ class LocalStore extends EventEmitter {
     this.q('DELETE FROM schedules WHERE id = ?').run(id);
   }
 
-  /** Work hours of an employee on a date: { start, end } or null for a day off. */
-  getWorkHoursSync(employee, date) {
+  /** The schedule an employee follows: their personal one, the chosen shared one, or the first (default) one. */
+  scheduleFor(employee) {
+    if (employee.personalSchedule && employee.personalSchedule.days) return { id: null, name: 'Shaxsiy jadval', personal: true, ...employee.personalSchedule };
     let sched = employee.scheduleId ? this.getSchedule(employee.scheduleId) : null;
     if (!sched) sched = this.listSchedules()[0];
+    return sched || null;
+  }
+
+  /** Work hours of an employee on a date: { start, end } or null for a day off. */
+  getWorkHoursSync(employee, date) {
+    const sched = this.scheduleFor(employee);
     if (!sched) return null;
     const d = sched.days[String(weekdayOf(date))];
     return d && d.start && d.end ? { start: d.start, end: d.end } : null;
@@ -190,20 +200,20 @@ class LocalStore extends EventEmitter {
   }
 
   createEmployee(e, { emit = true } = {}) {
-    const r = this.q(`INSERT INTO employees (employee_no, name, position, phone, telegram_chat_id, schedule_id, hourly_rate, active)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(
+    const r = this.q(`INSERT INTO employees (employee_no, name, position, phone, telegram_chat_id, schedule_id, personal_schedule, hourly_rate, active)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
       this.nextEmployeeNo(), e.name, e.position || null, e.phone || null, e.telegramChatId || null,
-      e.scheduleId || null, Number(e.hourlyRate) || 0, e.active === false ? 0 : 1,
+      e.scheduleId || null, e.personalSchedule ? JSON.stringify(e.personalSchedule) : null, Number(e.hourlyRate) || 0, e.active === false ? 0 : 1,
     );
     if (emit) this.reloadEmployees();
     return Number(r.lastInsertRowid);
   }
 
   updateEmployee(id, e) {
-    this.q(`UPDATE employees SET name = ?, position = ?, phone = ?, telegram_chat_id = ?, schedule_id = ?, hourly_rate = ?,
-      active = ?, version = version + 1, updated_at = ? WHERE id = ?`).run(
+    this.q(`UPDATE employees SET name = ?, position = ?, phone = ?, telegram_chat_id = ?, schedule_id = ?, personal_schedule = ?,
+      hourly_rate = ?, active = ?, version = version + 1, updated_at = ? WHERE id = ?`).run(
       e.name, e.position || null, e.phone || null, e.telegramChatId || null, e.scheduleId || null,
-      Number(e.hourlyRate) || 0, e.active ? 1 : 0, nowIso(), id,
+      e.personalSchedule ? JSON.stringify(e.personalSchedule) : null, Number(e.hourlyRate) || 0, e.active ? 1 : 0, nowIso(), id,
     );
     this.reloadEmployees();
   }

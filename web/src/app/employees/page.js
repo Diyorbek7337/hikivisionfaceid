@@ -3,7 +3,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { useApi, faceUrl } from '@/lib/api';
 import { money, normText } from '@/lib/time';
-import { SyncBadge, ErrorBox } from '@/components/ui';
+import { SyncBadge, ErrorBox, scheduleSummary } from '@/components/ui';
 
 export default function Employees() {
   const { data: all, error } = useApi('/employees', { refreshMs: 8000 });
@@ -50,7 +50,9 @@ export default function Employees() {
                 <td><code>{e.employeeNo}</code></td>
                 <td>{e.name} {!e.active && <span className="pill muted">nofaol</span>}</td>
                 <td className="muted">{e.position}</td>
-                <td>{sched.get(e.scheduleId) || defaultSched}</td>
+                <td>{e.personalSchedule
+                  ? <span title={scheduleSummary(e.personalSchedule)}>Shaxsiy: <span className="muted">{scheduleSummary(e.personalSchedule)}</span></span>
+                  : sched.get(e.scheduleId) || defaultSched}</td>
                 <td>{e.hourlyRate ? money(e.hourlyRate) : ''}</td>
                 {devs.map((d) => <td key={d.id}><SyncBadge employee={e} device={d} /></td>)}
                 <td><Link href={`/employees/edit/?id=${e.id}`}>Tahrirlash</Link></td>

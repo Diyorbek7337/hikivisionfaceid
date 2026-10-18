@@ -67,3 +67,25 @@ test('the default schedule cannot be deleted while employees implicitly use it',
   const first = store.listSchedules()[0];
   assert.throws(() => store.deleteSchedule(first.id), /biriktirilgan/);
 });
+
+test('personal schedule: only the employee\'s own days count, shared schedules ignore them', () => {
+  const { store, emp } = setup();
+  const days = { 0: null, 1: { start: '08:00', end: '12:00' }, 2: null, 3: null, 4: { start: '14:00', end: '16:00' }, 5: null, 6: null };
+  store.updateEmployee(emp.id, { ...emp, personalSchedule: { days } });
+  const e = store.getEmployee(emp.id);
+  assert.deepEqual(e.personalSchedule.days['4'], { start: '14:00', end: '16:00' });
+  assert.deepEqual(store.getWorkHoursSync(e, '2026-10-15'), { start: '14:00', end: '16:00' }); // Thursday
+  assert.equal(store.getWorkHoursSync(e, '2026-10-14'), null); // Wednesday: day off for this person
+  // Wednesday is not "absent", Thursday afternoon is pending in the morning
+  assert.equal(daySummary(store, '2026-10-14', tz, at('2026-10-14', '18:00'))[0].status, 'off');
+  assert.equal(daySummary(store, '2026-10-15', tz, at('2026-10-15', '10:00'))[0].status, 'pending');
+  const week = periodSummary(store, '2026-10-12', '2026-10-18', tz, at('2026-10-19', '09:00')).summary[0];
+  assert.equal(week.workDays, 2);
+  assert.equal(week.absentDays, 2);
+  // the default schedule is not "used" by someone with a personal schedule -> can be deleted once another exists
+  store.saveSchedule({ name: 'Boshqa', days: {} });
+  store.deleteSchedule(store.listSchedules()[0].id);
+  // back to the shared schedule
+  store.updateEmployee(emp.id, { ...e, personalSchedule: null });
+  assert.equal(store.getEmployee(emp.id).personalSchedule, null);
+});

@@ -5,12 +5,13 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { api, useApi, faceUrl } from '@/lib/api';
 import FacePicker from '@/components/FacePicker';
 import { scheduleSummary } from '@/components/ui';
+import DaysEditor, { blankDays } from '@/components/DaysEditor';
 
 export default function Page() {
   return <Suspense fallback={<p className="muted">Yuklanmoqda…</p>}><EmployeeForm /></Suspense>;
 }
 
-const EMPTY = { name: '', position: '', phone: '', telegramChatId: '', scheduleId: '', hourlyRate: 0, active: true };
+const EMPTY = { name: '', position: '', phone: '', telegramChatId: '', scheduleId: '', personalSchedule: null, hourlyRate: 0, active: true };
 
 function EmployeeForm() {
   const router = useRouter();
@@ -32,6 +33,16 @@ function EmployeeForm() {
       setLoading(false);
     }).catch((e) => { if (e.status === 404 || e.status === 400) setNotFound(true); else setError(e.message); setLoading(false); });
   }, [id]);
+
+  const personal = !!form.personalSchedule;
+  function setPersonal(on) {
+    setForm((f) => {
+      if (!on) return { ...f, personalSchedule: null };
+      // start from the shared schedule the employee had, so only the differences need editing
+      const base = (schedules || []).find((s) => String(s.id) === String(f.scheduleId)) || (schedules || [])[0];
+      return { ...f, personalSchedule: { days: base ? JSON.parse(JSON.stringify(base.days)) : blankDays() } };
+    });
+  }
 
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value }));
 
@@ -90,14 +101,30 @@ function EmployeeForm() {
           <label>F.I.Sh. *<input value={form.name} onChange={set('name')} maxLength={100} required /></label>
           <label>Lavozim<input value={form.position} onChange={set('position')} maxLength={100} placeholder="O'qituvchi, qorovul…" /></label>
           <label>Telefon<input value={form.phone} onChange={set('phone')} maxLength={30} /></label>
-          <label>Ish jadvali<select value={form.scheduleId} onChange={set('scheduleId')}>
-            {(schedules || []).map((s) => <option key={s.id} value={s.id}>{s.name} — {scheduleSummary(s)}</option>)}
-          </select></label>
           <label>Soatbay stavka (so&apos;m)<input type="number" min="0" step="1" value={form.hourlyRate} onChange={set('hourlyRate')} /></label>
           <label>Telegram chat ID<input value={form.telegramChatId} onChange={set('telegramChatId')} placeholder="Bot /start da ko'rsatadi" /></label>
           <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <input type="checkbox" checked={!!form.active} onChange={set('active')} /> Faol (terminal taniydi)
           </label>
+        </div>
+        <div className="card">
+          <h2>Ish jadvali</h2>
+          <div className="row" style={{ gap: 16, marginBottom: 8 }}>
+            <label className="inline"><input type="radio" checked={!personal} onChange={() => setPersonal(false)} /> Umumiy jadval</label>
+            <label className="inline"><input type="radio" checked={personal} onChange={() => setPersonal(true)} /> Shaxsiy jadval</label>
+          </div>
+          {!personal && (
+            <label>Jadval<select value={form.scheduleId} onChange={set('scheduleId')}>
+              {(schedules || []).map((s) => <option key={s.id} value={s.id}>{s.name} — {scheduleSummary(s)}</option>)}
+            </select></label>
+          )}
+          {personal && (
+            <>
+              <p className="hint">Faqat shu xodim uchun: qaysi kunlari va soat nechada kelishi kerak. Belgilanmagan kunlar — dam olish
+                (kelmasa &quot;kelmagan&quot; hisoblanmaydi).</p>
+              <DaysEditor days={form.personalSchedule.days} onChange={(days) => setForm((f) => ({ ...f, personalSchedule: { ...f.personalSchedule, days } }))} />
+            </>
+          )}
         </div>
         <div className="row">
           <button disabled={saving}>{saving ? 'Saqlanmoqda…' : 'Saqlash'}</button>

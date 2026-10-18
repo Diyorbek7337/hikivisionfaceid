@@ -47,6 +47,7 @@ function cleanEmployee(b) {
     phone: String(b.phone || '').trim().slice(0, 30),
     telegramChatId: String(b.telegramChatId || '').trim().slice(0, 20),
     scheduleId: b.scheduleId ? Number(b.scheduleId) : null,
+    personalSchedule: b.personalSchedule ? { days: cleanDays(b.personalSchedule.days) } : null,
     hourlyRate: clampInt(b.hourlyRate, 0, 100000000),
     active: b.active !== false,
   };
@@ -59,9 +60,14 @@ function cleanEmployee(b) {
 function cleanSchedule(b) {
   const name = String(b.name || '').trim().slice(0, 60);
   if (!name) throw bad('Jadval nomini kiriting');
+  return { name, days: cleanDays(b.days) };
+}
+
+/** Week of work hours: {"0": null | {start, end}, ...}, 0 = Sunday. */
+function cleanDays(src) {
   const days = {};
   for (let i = 0; i < 7; i += 1) {
-    const d = b.days && b.days[String(i)];
+    const d = src && src[String(i)];
     if (d && d.start && d.end) {
       const start = normHHMM(d.start);
       const end = normHHMM(d.end);
@@ -72,7 +78,7 @@ function cleanSchedule(b) {
       days[String(i)] = { start, end };
     } else days[String(i)] = null;
   }
-  return { name, days };
+  return days;
 }
 
 function decodeImage(b64) {
@@ -160,7 +166,7 @@ function createApi({ store, auth, cfg, sync, backup, version }) {
   // ---------- schedules ----------
   api.get('/schedules', (req, res) => {
     const counts = new Map();
-    for (const e of store.employees.values()) if (!e.deleted) counts.set(e.scheduleId, (counts.get(e.scheduleId) || 0) + 1);
+    for (const e of store.employees.values()) if (!e.deleted && !e.personalSchedule) counts.set(e.scheduleId, (counts.get(e.scheduleId) || 0) + 1);
     const list = store.listSchedules();
     const firstId = list[0] && list[0].id;
     res.json(list.map((s) => ({ ...s, employees: (counts.get(s.id) || 0) + (s.id === firstId ? (counts.get(null) || 0) : 0) })));
