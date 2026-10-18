@@ -1,5 +1,6 @@
 'use strict';
 const { localDate, localTime, localMinutes, parseHHMM, formatDuration } = require('./time');
+const { MAX_PUNCHES, punchesOf, summarizeDay } = require('./sessions');
 
 /** Notifications for events older than this are skipped (e.g. a terminal re-sending its offline backlog). */
 const NOTIFY_MAX_AGE_MS = 15 * 60 * 1000;
@@ -10,26 +11,27 @@ function esc(s) {
 const money = (n) => new Intl.NumberFormat('en-US').format(Math.round(n));
 
 /**
- * Recomputes late / early-leave / worked minutes from rec.workStart / rec.workEnd (null on a day off).
- * `rec.checkIn` / `rec.checkOut` are Dates.
+ * Recomputes the day from its scans: sessions, first arrival, last departure, worked time (sum of
+ * complete sessions), lateness (first arrival vs rec.workStart) and early leave (last departure vs rec.workEnd).
+ * Work hours are null on a day off / flexible schedule. Records without `punches` (older versions,
+ * tests) are read from checkIn / checkOut.
  */
 function computeStats(rec, settings, tz) {
+  const punches = punchesOf(rec);
+  const day = summarizeDay(punches);
   const start = parseHHMM(rec.workStart);
   const end = parseHHMM(rec.workEnd);
-  const ci = rec.checkIn || null;
-  const co = rec.checkOut || null;
   let late = 0;
-  if (ci && start != null) {
-    const d = localMinutes(ci, tz) - start;
+  if (day.checkIn && start != null) {
+    const d = localMinutes(day.checkIn, tz) - start;
     late = d > (settings.lateGraceMinutes || 0) ? d : 0;
   }
   let early = 0;
-  if (co && end != null) {
-    const d = end - localMinutes(co, tz);
+  if (day.checkOut && end != null) {
+    const d = end - localMinutes(day.checkOut, tz);
     early = d > 0 ? d : 0;
   }
-  const worked = ci && co && co > ci ? Math.round((co - ci) / 60000) : null;
-  return { ...rec, lateMinutes: late, earlyMinutes: early, workedMinutes: worked };
+  return { ...rec, ...day, punches, lateMinutes: late, earlyMinutes: early };
 }
 
 /** Pay for one day, rounded to whole so'm (totals are sums of rounded days, so they always add up). */
@@ -41,8 +43,8 @@ function salaryFor(rec) {
 /**
  * Applies one successful recognition to the attendance data.
  *   store: { findEmployeeByNo(no), getWorkHours(employee, date), getAttendance(employeeId, date), saveAttendance(rec) }
- * Returns { action, employee, record, time }.
- *   action: checkin | checkout | duplicate | repeat_in | unknown_employee | inactive_employee
+ * Returns { action, employee, record, session, firstOfDay, time }.
+ *   action: checkin | checkout | duplicate | too_many | unknown_employee | inactive_employee | before_registration
  */
 async function processScan(store, settings, tz, device, ev) {
   const employee = await store.findEmployeeByNo(ev.employeeNo);
@@ -59,42 +61,14 @@ async function processScan(store, settings, tz, device, ev) {
   const existing = await store.getAttendance(employee.id, date);
   const rec = existing ? { ...existing } : { employeeId: employee.id, date };
 
+  const punches = punchesOf(rec);
+  // One scan seen twice (or someone scanning again right away) counts once.
   const debounceMs = (settings.debounceSeconds || 0) * 1000;
-  for (const prev of [rec.checkIn, rec.checkOut]) {
-    if (prev && Math.abs(t - prev) < debounceMs) return { action: 'duplicate', employee, record: existing };
-  }
+  if (punches.some((p) => Math.abs(t - p.time) < debounceMs)) return { action: 'duplicate', employee, record: existing };
+  if (punches.length >= MAX_PUNCHES) return { action: 'too_many', employee, record: existing };
 
-  let action;
-  const direction = device.direction || 'auto';
-  if (direction === 'auto') {
-    // One terminal for both ways: the earliest scan of the day is the arrival, the latest the departure.
-    // Deciding by time (not by arrival order) keeps late-delivered backlog scans correct.
-    const slots = [
-      rec.checkIn && { time: rec.checkIn, id: rec.checkInDeviceId, name: rec.checkInDeviceName },
-      rec.checkOut && { time: rec.checkOut, id: rec.checkOutDeviceId, name: rec.checkOutDeviceName },
-      { time: t, id: device.id, name: device.name || '', isNew: true },
-    ].filter(Boolean).sort((a, b) => a.time - b.time);
-    const first = slots[0];
-    const last = slots.length > 1 ? slots[slots.length - 1] : null;
-    if (!first.isNew && !(last && last.isNew)) return { action: 'repeat_in', employee, record: existing };
-    Object.assign(rec, {
-      checkIn: first.time, checkInDeviceId: first.id, checkInDeviceName: first.name,
-      checkOut: last ? last.time : null, checkOutDeviceId: last ? last.id : null, checkOutDeviceName: last ? last.name : null,
-    });
-    action = first.isNew ? 'checkin' : 'checkout';
-  } else if (direction === 'in') {
-    if (rec.checkIn && rec.checkIn <= t) return { action: 'repeat_in', employee, record: existing };
-    rec.checkIn = t;
-    rec.checkInDeviceId = device.id;
-    rec.checkInDeviceName = device.name || '';
-    action = 'checkin';
-  } else {
-    if (rec.checkOut && rec.checkOut >= t) return { action: 'duplicate', employee, record: existing };
-    rec.checkOut = t;
-    rec.checkOutDeviceId = device.id;
-    rec.checkOutDeviceName = device.name || '';
-    action = 'checkout';
-  }
+  const dir = ['in', 'out', 'auto'].includes(device.direction) ? device.direction : 'auto';
+  rec.punches = [...punches, { time: t, dir, deviceId: device.id, deviceName: device.name || '' }];
 
   // Keep a copy of the details used for the calculation (reports stay correct after later edits).
   // The first record of the day fixes them; later scans the same day reuse that snapshot.
@@ -112,23 +86,35 @@ async function processScan(store, settings, tz, device, ev) {
   }
   const record = computeStats(rec, settings, tz);
   await store.saveAttendance(record);
-  return { action, employee, record, time: t };
+  // Did this scan start a session (arrival) or end one (departure)?
+  const session = record.sessions.find((x) => (x.in && x.in.getTime() === t.getTime()) || (x.out && x.out.getTime() === t.getTime()));
+  const action = session && session.in && session.in.getTime() === t.getTime() ? 'checkin' : 'checkout';
+  const firstOfDay = !!record.checkIn && record.checkIn.getTime() === t.getTime();
+  return { action, employee, record, session, firstOfDay, time: t };
 }
 
-function checkinMessage(employee, record, tz) {
-  let text = `✅ <b>Kelganingiz qayd etildi!</b>\n\n👤 ${esc(employee.name)}\n🕐 Vaqt: ${localTime(record.checkIn, tz)}\n📷 Yuz orqali tasdiqlangan\n\n`;
-  if (record.lateMinutes > 0) text += `⚠️ Kechikish: ${formatDuration(record.lateMinutes)}`;
-  else if (record.workStart) text += '✅ O\'z vaqtida!';
+function checkinMessage(employee, record, tz, result = {}) {
+  const time = result.time || record.checkIn;
+  const again = result.firstOfDay === false;
+  let text = `✅ <b>${again ? 'Qaytib kelganingiz' : 'Kelganingiz'} qayd etildi!</b>\n\n👤 ${esc(employee.name)}\n🕐 Vaqt: ${localTime(time, tz)}\n📷 Yuz orqali tasdiqlangan`;
+  if (again) return text;
+  if (record.lateMinutes > 0) text += `\n\n⚠️ Kechikish: ${formatDuration(record.lateMinutes)}`;
+  else if (record.workStart) text += '\n\n✅ O\'z vaqtida!';
   return text;
 }
 
-function checkoutMessage(employee, record, tz) {
-  let text = `👋 <b>Ketganingiz qayd etildi!</b>\n\n👤 ${esc(employee.name)}\n🕐 Vaqt: ${localTime(record.checkOut, tz)}\n`;
-  if (record.workedMinutes != null) text += `⏱ Ishlagan: ${formatDuration(record.workedMinutes)}\n`;
+function checkoutMessage(employee, record, tz, result = {}) {
+  const time = result.time || record.checkOut;
+  const session = result.session;
+  let text = `👋 <b>Ketganingiz qayd etildi!</b>\n\n👤 ${esc(employee.name)}\n🕐 Vaqt: ${localTime(time, tz)}\n`;
+  const several = record.sessions && record.sessions.length > 1;
+  if (several && session && session.minutes != null) text += `⏱ Bu safar: ${formatDuration(session.minutes)}\n`;
+  if (record.workedMinutes != null) text += `⏱ ${several ? 'Bugun jami' : 'Ishlagan'}: ${formatDuration(record.workedMinutes)}\n`;
   text += '📷 Yuz orqali tasdiqlangan';
   const pay = salaryFor(record);
   if (pay > 0) text += `\n💰 Bugun: ${money(pay)} so'm`;
-  if (record.earlyMinutes > 0) text += `\n⚠️ Erta ketish: ${formatDuration(record.earlyMinutes)}`;
+  const isLast = record.checkOut && time && record.checkOut.getTime() === time.getTime();
+  if (isLast && record.earlyMinutes > 0) text += `\n⚠️ Erta ketish: ${formatDuration(record.earlyMinutes)}`;
   return text;
 }
 
@@ -144,10 +130,10 @@ async function notifyScan(telegram, tz, result) {
   if (Math.abs(Date.now() - time.getTime()) > NOTIFY_MAX_AGE_MS) return;
   try {
     if (action === 'checkin') {
-      if (employee.telegramChatId) await telegram.send(employee.telegramChatId, checkinMessage(employee, record, tz));
-      if (record.lateMinutes > 0) await telegram.notifyAdmins(lateAdminMessage(employee, record, tz));
+      if (employee.telegramChatId) await telegram.send(employee.telegramChatId, checkinMessage(employee, record, tz, result));
+      if (result.firstOfDay && record.lateMinutes > 0) await telegram.notifyAdmins(lateAdminMessage(employee, record, tz));
     } else if (employee.telegramChatId) {
-      await telegram.send(employee.telegramChatId, checkoutMessage(employee, record, tz));
+      await telegram.send(employee.telegramChatId, checkoutMessage(employee, record, tz, result));
     }
   } catch (err) {
     console.error('Telegram xatosi:', err.message);

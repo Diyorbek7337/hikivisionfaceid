@@ -230,3 +230,35 @@ test('first-run setup is refused when not addressed as localhost (DNS rebinding)
   });
   assert.equal(status, 403);
 });
+
+test('manual editing of a day with several sessions', async (t) => {
+  const { store, server, call } = await setup();
+  t.after(() => server.close());
+  await call('POST', '/api/setup', { username: 'admin', password: 'parol123' });
+  const emp = (await call('POST', '/api/employees', { name: 'Usmonov Bekzod', hourlyRate: 60000 })).body;
+  store.db.prepare("UPDATE employees SET created_at = '2026-01-01T00:00:00Z'").run();
+  store.reloadEmployees(false);
+  const put = (body) => call('PUT', '/api/attendance', { employeeId: emp.id, date: '2026-01-12', ...body });
+
+  // two lessons the same day
+  const r = await put({ sessions: [{ in: '14:00', out: '16:00' }, { in: '8:00', out: '10:00' }], replace: true });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.workedMinutes, 240);
+  assert.equal(r.body.sessions.length, 2);
+  assert.equal(r.body.lateMinutes, 0);
+  // "Qo'lda qo'shish" adds a forgotten third visit
+  const add = await put({ sessions: [{ in: '17:00', out: '' }] });
+  assert.equal(add.body.sessions.length, 3);
+  assert.equal(add.body.openSessions, 1);
+  assert.equal(add.body.checkOut, null);
+  assert.equal((await put({ sessions: [{ in: '17:00' }] })).status, 400, 'already there');
+  // overlapping or reversed times are refused
+  assert.equal((await put({ sessions: [{ in: '08:00', out: '11:00' }, { in: '10:00', out: '12:00' }], replace: true })).status, 400);
+  assert.equal((await put({ sessions: [{ in: '12:00', out: '11:00' }], replace: true })).status, 400);
+  assert.equal((await put({ sessions: [{ in: '08:00' }, { out: '12:00' }], replace: true })).status, 400);
+  assert.equal((await put({ sessions: [{ in: '', out: '' }], replace: true })).status, 400);
+  // pay counts complete sessions only
+  const rep = await call('GET', '/api/report?from=2026-01-12&to=2026-01-12');
+  assert.equal(rep.body.summary[0].pay, 240000);
+  assert.equal(rep.body.records[0].sessions.length, 3);
+});

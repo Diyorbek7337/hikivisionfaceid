@@ -19,7 +19,7 @@ function setup() {
 }
 const scan = (store, emp, device, time) => processScan(store, store.settings, tz, device, { employeeNo: emp.employeeNo, time });
 
-test('auto terminal: backlog scans arriving out of order keep in = earliest, out = latest', async () => {
+test('auto terminal: backlog scans arriving out of order give the same sessions', async () => {
   const { store, emp } = setup();
   const dev = { id: 'a', name: 'A', direction: 'auto' };
   await scan(store, emp, dev, at('2026-10-15', '17:00'));
@@ -29,8 +29,75 @@ test('auto terminal: backlog scans arriving out of order keep in = earliest, out
   assert.equal(r.checkOut.toISOString(), at('2026-10-15', '17:00').toISOString());
   assert.equal(r.workedMinutes, 540);
   assert.equal(r.lateMinutes, 0);
-  // a scan in the middle of the day changes nothing
-  assert.equal((await scan(store, emp, dev, at('2026-10-15', '12:00'))).action, 'repeat_in');
+  // one terminal for both ways: scans alternate arrival / departure in time order
+  assert.equal((await scan(store, emp, dev, at('2026-10-15', '12:00'))).action, 'checkout');
+  assert.equal((await scan(store, emp, dev, at('2026-10-15', '13:00'))).action, 'checkin');
+  const r2 = await store.getAttendance(emp.id, '2026-10-15');
+  assert.deepEqual(r2.sessions.map((x) => x.minutes), [240, 240]);
+  assert.equal(r2.workedMinutes, 480);
+  assert.equal(r2.checkOut.toISOString(), at('2026-10-15', '17:00').toISOString());
+});
+
+test('sessions: in/out terminals, lunch break is not work time, open sessions are flagged', async () => {
+  const { store, emp } = setup();
+  const kir = { id: 'k', name: 'Kirish', direction: 'in' };
+  const chiq = { id: 'c', name: 'Chiqish', direction: 'out' };
+  const s1 = await scan(store, emp, kir, at('2026-10-15', '08:10'));
+  assert.equal(s1.action, 'checkin');
+  assert.equal(s1.firstOfDay, true);
+  assert.equal(s1.record.lateMinutes, 10);
+  assert.equal((await scan(store, emp, chiq, at('2026-10-15', '10:00'))).action, 'checkout');
+  const s3 = await scan(store, emp, kir, at('2026-10-15', '14:00'));
+  assert.equal(s3.action, 'checkin');
+  assert.equal(s3.firstOfDay, false);
+  let r = await store.getAttendance(emp.id, '2026-10-15');
+  assert.equal(r.checkOut, null, 'inside again: no departure yet');
+  assert.equal(r.workedMinutes, 110);
+  assert.equal(r.openSessions, 1);
+  assert.equal(r.lateMinutes, 10, 'lateness is measured from the first arrival only');
+  const s4 = await scan(store, emp, chiq, at('2026-10-15', '16:00'));
+  assert.equal(s4.action, 'checkout');
+  assert.equal(s4.session.minutes, 120);
+  r = await store.getAttendance(emp.id, '2026-10-15');
+  assert.equal(r.workedMinutes, 230, '08:10–10:00 + 14:00–16:00, not 08:10–16:00');
+  assert.equal(r.earlyMinutes, 60);
+  assert.equal(r.openSessions, 0);
+  assert.equal(r.sessions.length, 2);
+  assert.equal(r.sessions[1].inDeviceName, 'Kirish');
+
+  // forgot to scan out, came in again: the first visit stays open
+  await scan(store, emp, kir, at('2026-10-16', '08:00'));
+  await scan(store, emp, kir, at('2026-10-16', '13:00'));
+  await scan(store, emp, chiq, at('2026-10-16', '17:00'));
+  r = await store.getAttendance(emp.id, '2026-10-16');
+  assert.deepEqual(r.sessions.map((x) => [!!x.in, !!x.out]), [[true, false], [true, true]]);
+  assert.equal(r.workedMinutes, 240);
+  assert.equal(r.openSessions, 1);
+
+  // a departure delivered late (terminal backlog) still closes the right session
+  await scan(store, emp, kir, at('2026-10-17', '08:00'));
+  await scan(store, emp, kir, at('2026-10-17', '13:00'));
+  await scan(store, emp, chiq, at('2026-10-17', '12:00'));
+  r = await store.getAttendance(emp.id, '2026-10-17');
+  assert.deepEqual(r.sessions.map((x) => x.minutes), [240, null]);
+
+  // the same face twice within the debounce window counts once
+  const twentySecondsLater = new Date(at('2026-10-17', '12:00').getTime() + 20000);
+  assert.equal((await scan(store, emp, chiq, twentySecondsLater)).action, 'duplicate');
+});
+
+test('records saved by older versions (check-in / check-out only) keep working', async () => {
+  const { store, emp } = setup();
+  store.db.prepare(`INSERT INTO attendance (employee_id, date, check_in, check_in_device_name, check_out, work_start, work_end, late_minutes, worked_minutes)
+    VALUES (?, '2026-10-15', ?, 'Kirish', ?, '08:00', '17:00', 0, 540)`).run(emp.id, at('2026-10-15', '08:00').toISOString(), at('2026-10-15', '17:00').toISOString());
+  let r = await store.getAttendance(emp.id, '2026-10-15');
+  assert.equal(r.sessions.length, 1);
+  assert.equal(r.sessions[0].inDeviceName, 'Kirish');
+  // a new scan on that day adds to the old times
+  await scan(store, emp, { id: 'k', name: 'Kirish', direction: 'in' }, at('2026-10-15', '18:00'));
+  r = await store.getAttendance(emp.id, '2026-10-15');
+  assert.equal(r.sessions.length, 2);
+  assert.equal(r.workedMinutes, 540);
 });
 
 test('snapshot of work hours is kept for the day even if the schedule changes', async () => {

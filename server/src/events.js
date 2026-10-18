@@ -50,8 +50,8 @@ function createEventProcessor({ store, tz, telegram, log = console }) {
     } else if (result.action === 'unknown_employee') {
       warnOnce(`ue:${device.id}:${ev.employeeNo}`,
         `ℹ️  ${device.name}: terminalda ${ev.employeeNo}-raqamli odam bor, tizimda yo'q (Terminallar → "Qayta yuborish" uni terminaldan o'chiradi)`);
-    } else if (result.action === 'repeat_in') {
-      log.log(`ℹ️  ${result.employee.name}: qayta kirish — birinchi kelish vaqti saqlanadi (${device.name})`);
+    } else if (result.action === 'too_many') {
+      warnOnce(`tm:${result.employee.id}`, `⚠️  ${result.employee.name}: bugun juda ko'p skanerlash — qolganlari hisobga olinmaydi (${device.name})`);
     } else if (result.action === 'before_registration') {
       // old event from the terminal's memory: ignore quietly
     } else if (result.action !== 'duplicate') {

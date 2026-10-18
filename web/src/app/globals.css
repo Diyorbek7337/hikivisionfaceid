@@ -77,3 +77,6 @@ button.stat.selected { border-color: var(--brand); box-shadow: 0 0 0 2px var(--b
   .facegrid .list { max-height: 40vh; }
   .modal table input[type=time] { width: 100px; }
 }
+.sessions { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.session { white-space: nowrap; padding: 0 6px; border-radius: 6px; background: var(--bg); border: 1px solid var(--line); font-size: 13px; }
+.session.open { border-color: var(--warn); background: var(--warn-bg); color: var(--warn); }

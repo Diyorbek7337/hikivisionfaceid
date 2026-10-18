@@ -4,6 +4,7 @@ import { api, useApi } from '@/lib/api';
 import { useApp } from '@/components/AppShell';
 import { formatDuration, localTime, money } from '@/lib/time';
 import { ErrorBox } from '@/components/ui';
+import { SessionList, openCount, sessionsText } from '@/components/Sessions';
 
 const pay = (r) => (r.workedMinutes && r.hourlyRate ? (r.workedMinutes / 60) * r.hourlyRate : 0);
 
@@ -22,6 +23,7 @@ export default function Reports() {
     .filter((r) => !employeeId || String(r.employeeId) === employeeId), [data, employeeId]);
   const summary = (data ? data.summary : []).filter((s) => !employeeId || String(s.employeeId) === employeeId);
   const showPay = summary.some((s) => s.pay > 0);
+  const openTotal = records.reduce((n, r) => n + openCount(r, today), 0);
 
   function exportCsv() {
     const cell = (v) => {
@@ -39,9 +41,9 @@ export default function Reports() {
         (s.workedMinutes / 60).toFixed(2).replace('.', ','), Math.round(s.pay)]);
     }
     out.push([]);
-    out.push(['Sana', 'Xodim', 'ID', 'Keldi', 'Ketdi', 'Kechikish (daq)', 'Erta ketish (daq)', 'Ishlagan (soat)', "Summa (so'm)", "Qo'lda"]);
+    out.push(['Sana', 'Xodim', 'ID', 'Keldi', 'Ketdi', 'Kelib-ketishlar', 'Kechikish (daq)', 'Erta ketish (daq)', 'Ishlagan (soat)', "Summa (so'm)", "Qo'lda"]);
     for (const r of [...records].reverse()) {
-      out.push([r.date, r.employeeName, r.employeeNo, localTime(r.checkIn), localTime(r.checkOut), r.lateMinutes || 0, r.earlyMinutes || 0,
+      out.push([r.date, r.employeeName, r.employeeNo, localTime(r.checkIn), localTime(r.checkOut), sessionsText(r, today), r.lateMinutes || 0, r.earlyMinutes || 0,
         r.workedMinutes != null ? (r.workedMinutes / 60).toFixed(2).replace('.', ',') : '', Math.round(pay(r)), r.manual ? 'ha' : '']);
     }
     const blob = new Blob([`﻿${out.map((l) => l.map(cell).join(';')).join('\r\n')}\r\n`], { type: 'text/csv;charset=utf-8' });
@@ -94,8 +96,12 @@ export default function Reports() {
 
       <div className="card">
         <h2>Kunlar bo&apos;yicha</h2>
+        {openTotal > 0 && (
+          <div className="flash warn">⚠️ {openTotal} ta kelib-ketishda kirish yoki chiqish skaneri yo&apos;q (sariq bilan belgilangan) — ularning vaqti
+            &quot;ishlagan&quot; ga qo&apos;shilmaydi. Kerak bo&apos;lsa, &quot;Tahrirlash&quot; orqali to&apos;g&apos;rilang.</div>
+        )}
         <table>
-          <thead><tr><th>Sana</th><th>Xodim</th><th>Keldi</th><th>Ketdi</th><th>Kechikish</th><th>Erta ketish</th><th>Ishlagan</th><th></th></tr></thead>
+          <thead><tr><th>Sana</th><th>Xodim</th><th>Keldi</th><th>Ketdi</th><th>Kelib-ketishlar</th><th>Kechikish</th><th>Erta ketish</th><th>Ishlagan</th><th></th></tr></thead>
           <tbody>
             {records.map((r) => (
               <tr key={r.id}>
@@ -103,42 +109,54 @@ export default function Reports() {
                 <td>{r.employeeName} {r.manual && <span className="pill muted" title="Qo'lda o'zgartirilgan">qo&apos;lda</span>}</td>
                 <td>{localTime(r.checkIn) || <span className="muted">—</span>}</td>
                 <td>{localTime(r.checkOut) || <span className="muted">—</span>}</td>
+                <td>{(r.sessions.length > 1 || openCount(r, today) > 0) && <SessionList record={r} today={today} />}</td>
                 <td>{r.lateMinutes > 0 && <span className="warn">{formatDuration(r.lateMinutes)}</span>}</td>
                 <td>{r.earlyMinutes > 0 && <span className="warn">{formatDuration(r.earlyMinutes)}</span>}</td>
                 <td>{r.workedMinutes != null ? formatDuration(r.workedMinutes) : ''}</td>
                 <td><button className="secondary small" onClick={() => setEditing(r)}>Tahrirlash</button></td>
               </tr>
             ))}
-            {data && !records.length && <tr><td colSpan={8} className="muted">Ma&apos;lumot yo&apos;q</td></tr>}
+            {data && !records.length && <tr><td colSpan={9} className="muted">Ma&apos;lumot yo&apos;q</td></tr>}
           </tbody>
         </table>
       </div>
-      {editing && <RecordForm record={editing} employees={activeEmployees} onClose={(changed) => { setEditing(null); if (changed) reload(); }} />}
+      {editing && <RecordForm record={editing} employees={activeEmployees} records={data ? data.records : []} today={today} onClose={(changed) => { setEditing(null); if (changed) reload(); }} />}
     </>
   );
 }
 
-function RecordForm({ record, employees, onClose }) {
+const emptyRow = () => ({ in: '', out: '' });
+
+function RecordForm({ record, employees, records, today, onClose }) {
   const isNew = !record.id;
   const [employeeId, setEmployeeId] = useState(record.employeeId ? String(record.employeeId) : '');
   const [date, setDate] = useState(record.date);
-  const [checkIn, setCheckIn] = useState(localTime(record.checkIn));
-  const [checkOut, setCheckOut] = useState(localTime(record.checkOut));
+  const [rows, setRows] = useState(() => (isNew || !record.sessions.length
+    ? [emptyRow()]
+    : record.sessions.map((s) => ({ in: localTime(s.in), out: localTime(s.out) }))));
   const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+  // "Qo'lda qo'shish" for a day that already has scans adds to them
+  const existing = isNew && employeeId && records.find((r) => String(r.employeeId) === employeeId && r.date === date);
+
+  const setRow = (i, k, v) => setRows((rs) => rs.map((r, j) => (j === i ? { ...r, [k]: v } : r)));
 
   async function save(e) {
     e.preventDefault();
+    setError('');
+    setSaving(true);
     try {
-      // editing a shown record replaces both times; "Qo'lda qo'shish" keeps the terminal's times for empty fields
-      await api('/attendance', { method: 'PUT', body: { employeeId: Number(employeeId), date, checkIn, checkOut, replace: !isNew } });
+      // editing a shown record replaces the whole day; "Qo'lda qo'shish" adds to what the terminals recorded
+      await api('/attendance', { method: 'PUT', body: { employeeId: Number(employeeId), date, sessions: rows, replace: !isNew } });
       onClose(true);
     } catch (err) {
       setError(err.message);
+      setSaving(false);
     }
   }
 
   async function remove() {
-    if (!confirm('Bu yozuv o\'chirilsinmi?')) return;
+    if (!confirm('Bu kunning butun yozuvi o\'chirilsinmi?')) return;
     try {
       await api(`/attendance/${record.id}`, { method: 'DELETE' });
       onClose(true);
@@ -152,24 +170,39 @@ function RecordForm({ record, employees, onClose }) {
       <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={save}>
         <h2>{isNew ? 'Davomatni qo\'lda qo\'shish' : `${record.employeeName} — ${record.date}`}</h2>
         {error && <div className="flash error">{error}</div>}
-        <div className="grid">
-          {isNew && (
-            <>
-              <label>Xodim<select value={employeeId} onChange={(e) => setEmployeeId(e.target.value)} required>
-                <option value="">Tanlang…</option>
-                {employees.map((x) => <option key={x.id} value={String(x.id)}>{x.name}</option>)}
-              </select></label>
-              <label>Sana<input type="date" value={date} onChange={(e) => setDate(e.target.value)} required /></label>
-            </>
-          )}
-          <label>Keldi<input type="time" value={checkIn} onChange={(e) => setCheckIn(e.target.value)} /></label>
-          <label>Ketdi<input type="time" value={checkOut} onChange={(e) => setCheckOut(e.target.value)} /></label>
-        </div>
+        {isNew && (
+          <div className="grid">
+            <label>Xodim<select value={employeeId} onChange={(e) => setEmployeeId(e.target.value)} required>
+              <option value="">Tanlang…</option>
+              {employees.map((x) => <option key={x.id} value={String(x.id)}>{x.name}</option>)}
+            </select></label>
+            <label>Sana<input type="date" value={date} onChange={(e) => setDate(e.target.value)} required /></label>
+          </div>
+        )}
+        {existing && (
+          <p className="hint">Bu kunda terminal yozgan vaqtlar bor: <SessionList record={existing} today={today} />. Kiritilgan vaqtlar ularga qo&apos;shiladi.</p>
+        )}
+        <table>
+          <thead><tr><th>#</th><th>Keldi</th><th>Ketdi</th><th></th></tr></thead>
+          <tbody>
+            {rows.map((r, i) => (
+              <tr key={i}>
+                <td className="muted">{i + 1}</td>
+                <td><input type="time" value={r.in} onChange={(e) => setRow(i, 'in', e.target.value)} /></td>
+                <td><input type="time" value={r.out} onChange={(e) => setRow(i, 'out', e.target.value)} /></td>
+                <td>{rows.length > 1 && (
+                  <button type="button" className="secondary small" title="Qatorni olib tashlash" onClick={() => setRows((rs) => rs.filter((_, j) => j !== i))}>✕</button>
+                )}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <p><button type="button" className="secondary small" onClick={() => setRows((rs) => [...rs, emptyRow()])}>+ Yana kelib-ketish</button></p>
         <p className="hint">{isNew
-          ? 'Masalan, xodim skan qilishni unutgan bo\'lsa. Bo\'sh qoldirilgan vaqt o\'zgarmaydi (terminal yozgani saqlanadi).'
-          : 'Vaqtni o\'chirsangiz, u yozuvdan olib tashlanadi. Kechikish va ishlagan vaqt qayta hisoblanadi.'}</p>
+          ? 'Masalan, xodim skan qilishni unutgan bo\'lsa: faqat yetishmagan vaqtni kiriting. Terminal yozgan vaqtlar saqlanadi.'
+          : 'Har bir qator — bitta kelib-ketish (masalan, 08:00–10:00 va 14:00–16:00). Ishlagan vaqt — qatorlar yig\'indisi. Bo\'sh qator hisobga olinmaydi.'}</p>
         <div className="row">
-          <button>Saqlash</button>
+          <button disabled={saving}>{saving ? 'Saqlanmoqda…' : 'Saqlash'}</button>
           <button type="button" className="secondary" onClick={() => onClose(false)}>Bekor qilish</button>
           {!isNew && <button type="button" className="danger" style={{ marginLeft: 'auto' }} onClick={remove}>O&apos;chirish</button>}
         </div>

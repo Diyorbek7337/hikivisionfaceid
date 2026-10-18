@@ -167,7 +167,8 @@ function createApi({ store, auth, cfg, sync, backup, version }) {
   // ---------- dashboard ----------
   api.get('/today', (req, res) => {
     const date = isDate(req.query.date) ? req.query.date : localDate(new Date(), tz);
-    res.json({ date, rows: daySummary(store, date, tz), devices: [...store.devices.values()].map(publicDevice) });
+    const rows = daySummary(store, date, tz).map((r) => ({ ...r, attendance: publicRecord(r.attendance) }));
+    res.json({ date, rows, devices: [...store.devices.values()].map(publicDevice) });
   });
 
   // ---------- schedules ----------
@@ -314,41 +315,73 @@ function createApi({ store, auth, cfg, sync, backup, version }) {
     const from = isDate(req.query.from) ? req.query.from : `${today.slice(0, 8)}01`;
     const to = isDate(req.query.to) ? req.query.to : today;
     if (from > to) throw bad('Sana oralig\'i noto\'g\'ri');
-    res.json({ from, to, ...periodSummary(store, from, to, tz) });
+    const { records, summary } = periodSummary(store, from, to, tz);
+    res.json({ from, to, records: records.map(publicRecord), summary });
   });
 
-  /** Manual add / edit of a day's record ({ employeeId, date, checkIn: "HH:MM"|"" , checkOut }). */
+  /**
+   * Manual add / edit of a day's record.
+   *   { employeeId, date, sessions: [{ in: "HH:MM"|"", out: "HH:MM"|"" }, ...], replace }
+   *   replace: true  — the day becomes exactly these sessions (editing a shown record)
+   *   replace: false — the times are added to what the terminals recorded ("Qo'lda qo'shish": a forgotten scan)
+   * Older clients send { checkIn, checkOut } instead of `sessions`: one session.
+   */
   api.put('/attendance', wrap(async (req, res) => {
     const { employeeId, date } = req.body;
     const emp = store.getEmployee(Number(employeeId));
     if (!emp || emp.deleted) throw bad('Xodimni tanlang');
     if (!isDate(date)) throw bad('Sana noto\'g\'ri');
     if (date > localDate(new Date(), tz)) throw bad('Kelajakdagi sana uchun davomat kiritib bo\'lmaydi');
-    let inT = req.body.checkIn ? normHHMM(req.body.checkIn) : '';
-    let outT = req.body.checkOut ? normHHMM(req.body.checkOut) : '';
-    if (inT === null || outT === null) throw bad('Vaqt noto\'g\'ri');
+    const replace = !!req.body.replace;
+    const given = Array.isArray(req.body.sessions) ? req.body.sessions : [{ in: req.body.checkIn, out: req.body.checkOut }];
+    if (given.length > 30) throw bad('Juda ko\'p qator');
+    const rows = given.map((r) => {
+      const row = { in: r && r.in ? normHHMM(r.in) : '', out: r && r.out ? normHHMM(r.out) : '' };
+      if (row.in === null || row.out === null) throw bad('Vaqt noto\'g\'ri');
+      if (row.in && row.out && row.out <= row.in) throw bad(`Ketish vaqti kelishdan keyin bo'lishi kerak (${row.in} – ${row.out})`);
+      return row;
+    }).filter((r) => r.in || r.out);
+    if (!rows.length) throw bad(replace ? 'Kamida bitta vaqtni kiriting (yozuvni butunlay olib tashlash uchun "O\'chirish" ni bosing)' : 'Kamida bitta vaqtni kiriting');
+
     const existing = await store.getAttendance(emp.id, date);
-    // "Qo'lda qo'shish" (no `replace`): an empty field keeps what the terminal already recorded.
-    // Editing a shown record sends `replace: true`, so clearing a field there removes that time.
-    if (!req.body.replace && existing) {
-      if (!inT && existing.checkIn) inT = localTime(existing.checkIn, tz);
-      if (!outT && existing.checkOut) outT = localTime(existing.checkOut, tz);
+    const old = existing ? existing.punches : [];
+    const sameMinute = (p, hhmm) => localTime(p.time, tz) === hhmm;
+    const manualPunch = (hhmm, dir) => ({ time: dateFromLocal(date, hhmm, tz), dir, deviceId: null, deviceName: null, manual: true });
+    let punches;
+    if (replace) {
+      rows.sort((a, b) => (a.in || a.out).localeCompare(b.in || b.out));
+      for (let i = 1; i < rows.length; i += 1) {
+        const prevEnd = rows[i - 1].out || rows[i - 1].in;
+        const nextStart = rows[i].in || rows[i].out;
+        if (nextStart <= prevEnd) throw bad(`Vaqtlar ustma-ust tushmoqda (${prevEnd} va ${nextStart}) — har bir kelib-ketish oldingisidan keyin bo'lsin`);
+      }
+      // An unchanged time keeps the terminal's original scan (exact seconds, terminal name).
+      const keep = (hhmm, dir) => {
+        const o = old.find((p) => sameMinute(p, hhmm) && (p.dir === dir || p.dir === 'auto'));
+        return o ? { ...o, dir } : manualPunch(hhmm, dir);
+      };
+      punches = rows.flatMap((r) => [r.in && keep(r.in, 'in'), r.out && keep(r.out, 'out')].filter(Boolean));
+    } else {
+      const added = rows.flatMap((r) => [r.in && manualPunch(r.in, 'in'), r.out && manualPunch(r.out, 'out')].filter(Boolean))
+        .filter((p) => !old.some((o) => sameMinute(o, localTime(p.time, tz))));
+      if (!added.length) throw bad('Bu vaqtlar allaqachon yozilgan');
+      punches = [...old, ...added];
     }
-    if (!inT && !outT) throw bad('Kamida bitta vaqtni kiriting');
+
     const hours = existing ? { start: existing.workStart, end: existing.workEnd } : store.getWorkHoursSync(emp, date);
     const rec = computeStats({
       ...(existing || {}),
       employeeId: emp.id, date, employeeNo: emp.employeeNo, employeeName: emp.name,
       workStart: hours ? hours.start : null, workEnd: hours ? hours.end : null,
       hourlyRate: existing ? existing.hourlyRate : emp.hourlyRate,
-      checkIn: inT ? (existing && existing.checkIn && inT === localTime(existing.checkIn, tz) ? existing.checkIn : dateFromLocal(date, inT, tz)) : null,
-      checkOut: outT ? (existing && existing.checkOut && outT === localTime(existing.checkOut, tz) ? existing.checkOut : dateFromLocal(date, outT, tz)) : null,
-      ...(inT ? {} : { checkInDeviceId: null, checkInDeviceName: null }),
-      ...(outT ? {} : { checkOutDeviceId: null, checkOutDeviceName: null }),
+      punches,
       manual: true,
     }, store.settings, tz);
-    if (rec.checkIn && rec.checkOut && rec.checkOut <= rec.checkIn) throw bad('Ketish vaqti kelishdan keyin bo\'lishi kerak');
-    res.json(await store.saveAttendance(rec));
+    // "08:00–" followed by "–12:00" would silently become one session: ask for one row instead.
+    if (replace && rec.sessions.length !== rows.length) {
+      throw bad('Faqat "keldi" yozilgan qatordan keyin faqat "ketdi" yozilgan qator kelmasin — ularni bitta qatorga yozing');
+    }
+    res.json(publicRecord(await store.saveAttendance(rec)));
   }));
 
   api.delete('/attendance/:id', (req, res) => { store.deleteAttendance(Number(req.params.id)); res.json({ ok: true }); });
@@ -399,6 +432,13 @@ function createApi({ store, auth, cfg, sync, backup, version }) {
   });
 
   return api;
+}
+
+/** Attendance record without the raw scan list (sessions carry the same information). */
+function publicRecord(r) {
+  if (!r) return r;
+  const { punches, ...rest } = r;
+  return rest;
 }
 
 function publicDevice(d) {

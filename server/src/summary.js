@@ -51,7 +51,10 @@ function daySummary(store, date, tz, now = new Date()) {
       const exp = expectedAtWork(emp, date, hours, ctx);
       status = exp === 'yes' ? 'absent' : exp === 'pending' ? 'pending' : 'off';
     }
-    rows.push({ employee: publicEmployee(emp), hours, flexible, attendance: att, status });
+    // inside now = the last visit has an arrival and no departure yet
+    const last = att && att.sessions && att.sessions[att.sessions.length - 1];
+    const inside = !!(last && last.in && !last.out);
+    rows.push({ employee: publicEmployee(emp), hours, flexible, attendance: att, status, inside });
   }
   rows.sort((a, b) => a.employee.name.localeCompare(b.employee.name));
   return rows;
@@ -75,7 +78,7 @@ function periodSummary(store, from, to, tz, now = new Date()) {
     const s = {
       employeeId: emp.id, employeeNo: emp.employeeNo, name: emp.name, position: emp.position,
       flexible: store.isFlexible(emp),
-      workDays: 0, presentDays: 0, absentDays: 0, lateCount: 0, lateMinutes: 0, earlyCount: 0, workedMinutes: 0, pay: 0,
+      workDays: 0, presentDays: 0, absentDays: 0, lateCount: 0, lateMinutes: 0, earlyCount: 0, workedMinutes: 0, pay: 0, openSessions: 0,
     };
     const recByDate = new Map(recs.map((r) => [r.date, r]));
     const start = [from, employeeStartDate(emp, tz)].sort()[1];
@@ -94,6 +97,7 @@ function periodSummary(store, from, to, tz, now = new Date()) {
       if (r.lateMinutes > 0) { s.lateCount += 1; s.lateMinutes += r.lateMinutes; }
       if (r.earlyMinutes > 0) s.earlyCount += 1;
       s.workedMinutes += r.workedMinutes || 0;
+      s.openSessions += r.openSessions || 0;
       s.pay += salaryFor(r);
     }
     out.push(s);

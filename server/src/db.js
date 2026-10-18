@@ -145,6 +145,9 @@ function migrate(db) {
   const schedCols = db.prepare('PRAGMA table_info(schedules)').all().map((c) => c.name);
   // 'fixed' = work hours per weekday; 'flexible' = comes when needed (no lateness, no absence)
   if (!schedCols.includes('type')) db.exec("ALTER TABLE schedules ADD COLUMN type TEXT NOT NULL DEFAULT 'fixed'");
+  const attCols = db.prepare('PRAGMA table_info(attendance)').all().map((c) => c.name);
+  // JSON list of the day's scans; the in/out sessions are derived from it (NULL in records from older versions)
+  if (!attCols.includes('punches')) db.exec('ALTER TABLE attendance ADD COLUMN punches TEXT');
   if (!empCols.includes('personal_schedule')) db.exec('ALTER TABLE employees ADD COLUMN personal_schedule TEXT');
 }
 

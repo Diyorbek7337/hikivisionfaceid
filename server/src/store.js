@@ -6,6 +6,7 @@
  */
 const { EventEmitter } = require('node:events');
 const { newDeviceId } = require('./db');
+const { punchesOf, summarizeDay, serializePunches } = require('./sessions');
 
 const DEFAULT_SETTINGS = {
   lateGraceMinutes: 5,
@@ -68,7 +69,7 @@ function mapDevice(r) {
 
 function mapAttendance(r) {
   if (!r) return null;
-  return {
+  const rec = {
     id: r.id,
     employeeId: r.employee_id,
     date: r.date,
@@ -88,6 +89,11 @@ function mapAttendance(r) {
     workedMinutes: r.worked_minutes,
     manual: bool(r.manual),
   };
+  rec.punches = punchesOf({ ...rec, punches: r.punches ? json(r.punches, null) : null });
+  const day = summarizeDay(rec.punches);
+  rec.sessions = day.sessions;
+  rec.openSessions = day.openSessions;
+  return rec;
 }
 
 function mapSchedule(r) {
@@ -341,17 +347,17 @@ class LocalStore extends EventEmitter {
   async saveAttendance(rec) {
     this.q(`INSERT INTO attendance (employee_id, date, employee_no, employee_name, check_in, check_in_device_id, check_in_device_name,
         check_out, check_out_device_id, check_out_device_name, work_start, work_end, hourly_rate, late_minutes, early_minutes,
-        worked_minutes, manual, updated_at)
+        worked_minutes, manual, punches, updated_at)
       VALUES (:employee_id, :date, :employee_no, :employee_name, :check_in, :check_in_device_id, :check_in_device_name,
         :check_out, :check_out_device_id, :check_out_device_name, :work_start, :work_end, :hourly_rate, :late_minutes,
-        :early_minutes, :worked_minutes, :manual, :updated_at)
+        :early_minutes, :worked_minutes, :manual, :punches, :updated_at)
       ON CONFLICT (employee_id, date) DO UPDATE SET
         employee_no = excluded.employee_no, employee_name = excluded.employee_name,
         check_in = excluded.check_in, check_in_device_id = excluded.check_in_device_id, check_in_device_name = excluded.check_in_device_name,
         check_out = excluded.check_out, check_out_device_id = excluded.check_out_device_id, check_out_device_name = excluded.check_out_device_name,
         work_start = excluded.work_start, work_end = excluded.work_end, hourly_rate = excluded.hourly_rate,
         late_minutes = excluded.late_minutes, early_minutes = excluded.early_minutes, worked_minutes = excluded.worked_minutes,
-        manual = excluded.manual, updated_at = excluded.updated_at`).run({
+        manual = excluded.manual, punches = excluded.punches, updated_at = excluded.updated_at`).run({
       employee_id: rec.employeeId,
       date: rec.date,
       employee_no: rec.employeeNo ?? null,
@@ -369,6 +375,7 @@ class LocalStore extends EventEmitter {
       early_minutes: rec.earlyMinutes || 0,
       worked_minutes: rec.workedMinutes ?? null,
       manual: rec.manual ? 1 : 0,
+      punches: serializePunches(punchesOf(rec)),
       updated_at: nowIso(),
     });
     return this.getAttendance(rec.employeeId, rec.date);
