@@ -19,8 +19,9 @@ if not exist "server\node_modules" (
   popd
 )
 
-if not exist "web\out\index.html" (
-  echo Web sahifalar tayyorlanmoqda ^(faqat birinchi marta, 2-5 daqiqa^)...
+node web\needs-build.js
+if errorlevel 1 (
+  echo Web sahifalar tayyorlanmoqda ^(birinchi marta yoki yangi versiyadan keyin, 2-5 daqiqa^)...
   pushd web
   if not exist "node_modules" call npm install
   call npm run build
