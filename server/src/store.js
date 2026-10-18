@@ -353,6 +353,14 @@ class LocalStore extends EventEmitter {
   // ---------- events ----------
   async eventExists(key) { return !!this.q('SELECT 1 FROM events WHERE id = ?').get(key); }
 
+  /** Same person on the same terminal within a few seconds (one scan delivered by push and by polling). */
+  async similarEventExists(deviceId, employeeNo, time, windowMs = 3000) {
+    if (!employeeNo || !time) return false;
+    const t = new Date(time).getTime();
+    return !!this.q('SELECT 1 FROM events WHERE device_id = ? AND employee_no = ? AND time BETWEEN ? AND ? LIMIT 1')
+      .get(deviceId, String(employeeNo), new Date(t - windowMs).toISOString(), new Date(t + windowMs).toISOString());
+  }
+
   async saveEvent(key, d) {
     this.q(`INSERT OR IGNORE INTO events (id, received_at, device_id, device_name, time, employee_no, employee_id, person_name, major, minor, action)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(

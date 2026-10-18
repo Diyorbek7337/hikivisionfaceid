@@ -75,3 +75,14 @@ test('the same scan arriving by push and by polling is stored once', async (t) =
   assert.equal(store.listEvents().length, 1);
   assert.equal(store.listEvents()[0].action, 'checkin');
 });
+
+test('same scan with different serial numbers (push vs log) is stored once', async (t) => {
+  const { term, store, devId, empId, processor, poller } = await setup();
+  t.after(() => term.close());
+  const emp = store.getEmployee(empId);
+  const when = new Date(Date.now() - 60000);
+  await processor.process(store.getDevice(devId), { major: 5, minor: 75, employeeNo: emp.employeeNo, time: when, serialNo: 900 });
+  term.state.events.push({ major: 5, minor: 75, time: when.toISOString(), employeeNoString: emp.employeeNo, serialNo: 15 });
+  await poller.tick();
+  assert.equal(store.listEvents().length, 1);
+});

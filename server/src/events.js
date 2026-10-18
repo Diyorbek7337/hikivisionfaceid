@@ -23,6 +23,8 @@ function createEventProcessor({ store, tz, telegram, log = console }) {
 
     const key = eventKey(device.id, ev);
     if (await store.eventExists(key)) return 'known';
+    // Push and polling may number the same scan differently: match it by person and time as well.
+    if (store.similarEventExists && await store.similarEventExists(device.id, ev.employeeNo, ev.time)) return 'known';
 
     const base = {
       deviceId: device.id, deviceName: device.name || '', time: ev.time || new Date(),
