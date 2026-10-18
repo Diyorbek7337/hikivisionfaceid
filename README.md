@@ -154,7 +154,7 @@ Xodim ishdan ketsa: **Tahrirlash → "Faol" belgisini olib tashlang** — u term
 | Belgi | Yechim |
 |---|---|
 | Brauzerda sahifa ochilmayapti | Qora oyna (start-windows.bat) ishlayaptimi? |
-| Terminal "✗ ulanmagan" | Serverdan `ping <terminal IP>`; login/parol to'g'rimi? |
+| Terminal "✗ ulanmagan" | Serverdan `ping <terminal IP>`; login/parol to'g'rimi? `terminal-tekshirish.bat` ni ishga tushirib, natijasini ko'ring. Parol xato bo'lsa terminal kompyuterni ~30 daqiqaga bloklashi mumkin — to'g'ri parolni kiritib, kuting. |
 | Skan qilinsa ham "Bugun"da chiqmayapti | Terminalda HTTP Listening; `firewall-ochish.bat`; **Eventlar** sahifasi. |
 | Eventlarda "Xodim topilmadi" | Terminalda tizimda yo'q odam bor — Terminallar → 🔄 Qayta yuborish. |
 | Xodim yonida "✗ …" | Xato matnini o'qing (ko'pincha rasm sifati) — yangi rasm oling. |

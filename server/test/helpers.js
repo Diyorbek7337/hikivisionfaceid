@@ -38,9 +38,16 @@ class MemoryStore extends EventEmitter {
 }
 
 /** Minimal fake Hikvision terminal with digest auth. */
-function startFakeTerminal({ username = 'admin', password = 'secret', faceError = null, port = 0 } = {}) {
+/**
+ * Options imitate firmware quirks:
+ *   singleUseNonce — every nonce is valid for one request; a re-used one gets a bare 401 (no WWW-Authenticate)
+ *   lockAfter      — after this many failed logins answer 401 with a lock body and no challenge
+ */
+function startFakeTerminal({ username = 'admin', password = 'secret', faceError = null, port = 0, singleUseNonce = false, lockAfter = 0 } = {}) {
   const realm = 'DS-K1T331W';
-  const nonce = crypto.randomBytes(8).toString('hex');
+  let nonce = crypto.randomBytes(8).toString('hex');
+  const usedNonces = new Set();
+  let failures = 0;
   const state = { users: new Map(), faces: new Map(), requests: [], time: '2020-01-01T00:00:00+05:00', setTimeBody: null };
 
   function authorized(req) {
@@ -51,6 +58,10 @@ function startFakeTerminal({ username = 'admin', password = 'secret', faceError 
     const ha1 = md5(`${username}:${realm}:${password}`);
     const ha2 = md5(`${req.method}:${p.uri}`);
     const expected = md5(`${ha1}:${p.nonce}:${p.nc}:${p.cnonce}:${p.qop}:${ha2}`);
+    if (singleUseNonce) {
+      if (p.nonce !== nonce || usedNonces.has(p.nonce)) return 'stale';
+      usedNonces.add(p.nonce);
+    }
     return p.response === expected && p.uri === req.url;
   }
 
@@ -62,11 +73,21 @@ function startFakeTerminal({ username = 'admin', password = 'secret', faceError 
     req.on('data', (c) => chunks.push(c));
     req.on('end', () => {
       const body = Buffer.concat(chunks);
-      if (!authorized(req)) {
+      if (lockAfter && failures >= lockAfter) {
         res.statusCode = 401;
+        return res.end('{"statusCode":4,"statusString":"Invalid Operation","subStatusCode":"userLocked","lockStatus":"lock","unlockTime":1800}');
+      }
+      const auth = authorized(req);
+      if (auth !== true) {
+        res.statusCode = 401;
+        if (auth === 'stale') return res.end(); // bare 401, no challenge
+        if (req.headers.authorization) failures += 1;
+        if (singleUseNonce) nonce = crypto.randomBytes(8).toString('hex');
         res.setHeader('WWW-Authenticate', `Digest qop="auth", realm="${realm}", nonce="${nonce}", stale="FALSE"`);
         return res.end();
       }
+      state.requests.push('auth-ok');
+      state.requests.pop();
       const url = req.url;
       state.requests.push(`${req.method} ${url.split('?')[0]}`);
       if (url === '/ISAPI/System/deviceInfo') {

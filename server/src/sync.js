@@ -83,8 +83,8 @@ class SyncEngine {
     this.checkResyncRequests();
     for (const dev of [...this.store.devices.values()]) {
       if (!deviceUsable(dev)) continue;
-      if (dev.online === false && !this.hasForcedFor(dev.id)) {
-        // Do not hammer an offline terminal; the monitor schedules a run when it comes back.
+      if (dev.online === false) {
+        // Do not hammer an offline (or login-rejecting) terminal; the monitor schedules a run when it comes back.
         continue;
       }
       let failedConnection = false;

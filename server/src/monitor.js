@@ -18,6 +18,7 @@ class DeviceMonitor {
     this.log = log;
     this.lastWrite = new Map();
     this.lastClockFix = new Map();
+    this.authBackoff = new Map(); // deviceId -> { until, password }
     this.busy = false;
   }
 
@@ -35,6 +36,9 @@ class DeviceMonitor {
   }
 
   async checkOne(dev) {
+    // After a rejected login wait 5 minutes (unless the password was changed) so the terminal does not lock us out.
+    const backoff = this.authBackoff.get(dev.id);
+    if (backoff && backoff.until > Date.now() && backoff.password === dev.password) return;
     const client = this.clientFor(dev);
     const update = {};
     try {
@@ -63,6 +67,10 @@ class DeviceMonitor {
       }
     } catch (err) {
       Object.assign(update, { online: false, lastError: explainError(err) });
+      if (err.status === 401) {
+        this.authBackoff.set(dev.id, { until: Date.now() + 5 * 60 * 1000, password: dev.password });
+        if (err.detail) this.log.warn(`   ${dev.name}: ${err.detail}`);
+      }
     }
 
     const changed = update.online !== dev.online

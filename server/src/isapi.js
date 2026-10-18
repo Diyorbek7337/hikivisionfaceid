@@ -34,6 +34,7 @@ class IsapiClient {
     this.timeoutMs = timeoutMs;
     this.challenge = null;
     this.nc = 0;
+    this.queue = Promise.resolve();
   }
 
   authHeader(method, uri) {
@@ -64,20 +65,58 @@ class IsapiClient {
     return fetch(this.base + uri, { method, headers: h, body, signal: AbortSignal.timeout(this.timeoutMs) });
   }
 
-  /** Raw request with digest auth; returns { status, text, contentType }. */
-  async request(method, uri, { body, contentType } = {}) {
+  /** Remembers the auth scheme from a 401 response. Returns false when the response has none. */
+  learnChallenge(res) {
+    const www = res.headers.get('www-authenticate') || '';
+    // Several WWW-Authenticate headers are joined with ", " — prefer Digest wherever it is.
+    const i = www.search(/digest\s/i);
+    if (i !== -1) {
+      this.challenge = { scheme: 'digest', ...parseChallenge(www.slice(i + 7)) };
+    } else if (/basic/i.test(www)) {
+      this.challenge = { scheme: 'basic' };
+    } else {
+      return false;
+    }
+    this.nc = 0;
+    return true;
+  }
+
+  /**
+   * Raw request with HTTP Digest (or Basic) auth; returns { status, text, contentType }.
+   * Some firmwares answer a re-used nonce with a bare 401 (no WWW-Authenticate), so we then ask for a
+   * fresh challenge with an unauthenticated request, and as a last resort try Basic auth.
+   */
+  request(method, uri, opts = {}) {
+    // One request at a time per terminal: digest nonce counters must arrive in order.
+    const run = this.queue.then(() => this.requestNow(method, uri, opts));
+    this.queue = run.catch(() => {});
+    return run;
+  }
+
+  async requestNow(method, uri, { body, contentType } = {}) {
     const headers = contentType ? { 'Content-Type': contentType } : {};
     let res;
     try {
       res = await this.send(method, uri, body, headers);
       if (res.status === 401) {
         await res.arrayBuffer().catch(() => {});
-        const www = res.headers.get('www-authenticate') || '';
-        if (/^digest/i.test(www)) this.challenge = { scheme: 'digest', ...parseChallenge(www) };
-        else if (/^basic/i.test(www)) this.challenge = { scheme: 'basic' };
-        else throw new IsapiError('Terminal autentifikatsiya turini qaytarmadi', { status: 401 });
-        this.nc = 0;
-        res = await this.send(method, uri, body, headers);
+        let learned = this.learnChallenge(res);
+        if (!learned && this.challenge) {
+          this.challenge = null; // stale cached nonce: start over without credentials
+          res = await this.send(method, uri, body, headers);
+          if (res.status === 401) {
+            await res.arrayBuffer().catch(() => {});
+            learned = this.learnChallenge(res);
+          }
+        }
+        if (res.status === 401) {
+          if (!learned) this.challenge = { scheme: 'basic' };
+          res = await this.send(method, uri, body, headers);
+          if (res.status === 401 && !learned) {
+            // Basic did not help either: forget it so the next request asks for a challenge again.
+            this.challenge = null;
+          }
+        }
       }
     } catch (err) {
       if (err instanceof IsapiError) throw err;
@@ -87,8 +126,28 @@ class IsapiClient {
       throw e;
     }
     const text = await res.text();
-    if (res.status === 401) throw new IsapiError('Login yoki parol noto\'g\'ri (401)', { status: 401 });
+    if (res.status === 401) {
+      this.challenge = null;
+      throw IsapiClient.authError(res, text);
+    }
     return { status: res.status, text, contentType: res.headers.get('content-type') || '' };
+  }
+
+  /** Explains a final 401: wrong password, or the terminal locked this computer out after failed logins. */
+  static authError(res, text) {
+    const data = IsapiClient.parse(text) || {};
+    const flat = JSON.stringify(data) + text;
+    const unlock = Number(data.unlockTime || data.retryLoginTime || (/unlockTime\D*(\d+)/i.exec(flat) || [])[1] || 0);
+    let msg;
+    if (/lock/i.test(flat)) {
+      const mins = unlock ? Math.ceil(unlock / 60) : 30;
+      msg = `Terminal ko'p noto'g'ri urinish sababli bu kompyuterni vaqtincha blokladi (~${mins} daqiqa). Parolni tekshiring va kuting`;
+    } else {
+      msg = 'Login yoki parol noto\'g\'ri (401)';
+    }
+    const e = new IsapiError(msg, { status: 401 });
+    e.detail = `WWW-Authenticate: ${res.headers.get('www-authenticate') || '(yo\'q)'}; javob: ${String(text).slice(0, 300)}`;
+    return e;
   }
 
   /** Parses a JSON or XML ISAPI response into an object. */
@@ -254,6 +313,7 @@ function explainError(err) {
     return 'Rasmda yuz aniq ko\'rinmayapti — yorug\', to\'g\'ridan olingan boshqa rasm yuklang';
   }
   if (/pictureSize|tooLarge|over.*size/i.test(s)) return 'Rasm hajmi juda katta';
+  if (/blokladi/i.test(s)) return err.message;
   if (/401|parol/i.test(s)) return 'Terminal login yoki paroli noto\'g\'ri';
   return (err && err.message) || String(err);
 }

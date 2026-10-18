@@ -37,3 +37,26 @@ test('wrong password and unreachable terminal give clear errors', async (t) => {
   const off = new IsapiClient({ host: '127.0.0.1', port: 1, timeoutMs: 2000 });
   await assert.rejects(off.deviceInfo(), (e) => e.connection === true);
 });
+
+test('single-use nonces and parallel requests still work', async (t) => {
+  const term = await startFakeTerminal({ singleUseNonce: true });
+  t.after(() => term.close());
+  const c = new IsapiClient({ host: '127.0.0.1', port: term.port, username: 'admin', password: 'secret' });
+  // monitor + sync at the same time
+  const results = await Promise.all([
+    c.deviceInfo(), c.upsertUser({ employeeNo: '1', name: 'A' }), c.getTime(), c.upsertUser({ employeeNo: '2', name: 'B' }),
+  ]);
+  assert.equal(results[0].model, 'DS-K1T331W');
+  assert.equal(term.state.users.size, 2);
+  await c.setFace('1', Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
+  assert.ok(term.state.faces.has('1'));
+});
+
+test('lock-out is reported clearly', async (t) => {
+  const term = await startFakeTerminal({ lockAfter: 2 });
+  t.after(() => term.close());
+  const bad = new IsapiClient({ host: '127.0.0.1', port: term.port, username: 'admin', password: 'nope' });
+  await assert.rejects(bad.deviceInfo(), /parol/);
+  await assert.rejects(bad.deviceInfo(), /parol/);
+  await assert.rejects(bad.deviceInfo(), /blokladi \(~30 daqiqa\)/);
+});
