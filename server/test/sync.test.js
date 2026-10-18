@@ -89,3 +89,19 @@ test('monitor marks device online and fixes its clock', async (t) => {
   assert.equal(store.devices.get('d1').online, false);
   assert.match(store.devices.get('d1').lastError, /parol/);
 });
+
+test('terminal coming back online triggers a sync (real store)', async (t) => {
+  const { openDatabase } = require('../src/db');
+  const { LocalStore } = require('../src/store');
+  const term = await startFakeTerminal();
+  t.after(() => term.close());
+  const store = new LocalStore(openDatabase(':memory:'));
+  const id = store.saveDevice({ name: 'Chiqish', ip: '127.0.0.1', port: term.port, password: 'secret', direction: 'out' });
+  await store.updateDevice(id, { online: false, lastError: 'eski xato' }); // state left from a previous run
+  let calls = 0;
+  const clientFor = (d) => new IsapiClient({ host: d.ip, port: d.port, username: d.username, password: d.password });
+  const mon = new DeviceMonitor({ store, clientFor, tz: 'Asia/Tashkent', onOnline: () => { calls += 1; }, log: quiet });
+  await mon.checkAll();
+  assert.equal(store.getDevice(id).online, true);
+  assert.equal(calls, 1);
+});

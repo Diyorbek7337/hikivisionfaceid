@@ -6,6 +6,15 @@ const { loadEnvFile } = require('./env');
 
 loadEnvFile();
 
+// The Windows console cannot draw emoji: drop them from log lines there.
+if (process.platform === 'win32') {
+  const strip = (a) => (typeof a === 'string' ? a.replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}]\uFE0F?\s?/gu, '') : a);
+  for (const k of ['log', 'warn', 'error']) {
+    const orig = console[k].bind(console);
+    console[k] = (...args) => orig(...args.map(strip));
+  }
+}
+
 const { loadConfig } = require('./config');
 const { openDatabase } = require('./db');
 const { LocalStore } = require('./store');

@@ -36,6 +36,7 @@ class DeviceMonitor {
   }
 
   async checkOne(dev) {
+    const wasOnline = dev.online; // store.updateDevice() may update `dev` in place
     // After a rejected login wait 5 minutes (unless the password was changed) so the terminal does not lock us out.
     const backoff = this.authBackoff.get(dev.id);
     if (backoff && backoff.until > Date.now() && backoff.password === dev.password) return;
@@ -73,7 +74,7 @@ class DeviceMonitor {
       }
     }
 
-    const changed = update.online !== dev.online
+    const changed = update.online !== wasOnline
       || (update.lastError || '') !== (dev.lastError || '')
       || (update.model && update.model !== dev.model)
       || (update.clockSkewSec !== undefined && Math.abs((update.clockSkewSec || 0) - (dev.clockSkewSec || 0)) > CLOCK_TOLERANCE_SEC)
@@ -83,10 +84,10 @@ class DeviceMonitor {
       update.lastCheckAt = Date.now();
       this.lastWrite.set(dev.id, Date.now());
       await this.store.updateDevice(dev.id, update).catch((e) => this.log.error('Firestore:', e.message));
-      if (update.online && dev.online !== true) {
+      if (update.online && wasOnline !== true) {
         this.log.log(`🟢 ${dev.name} (${dev.ip}) ulandi: ${update.model || ''}`);
         this.onOnline(dev);
-      } else if (!update.online && dev.online !== false) {
+      } else if (!update.online && wasOnline !== false) {
         this.log.warn(`🔴 ${dev.name} (${dev.ip}): ${update.lastError}`);
       }
     }
