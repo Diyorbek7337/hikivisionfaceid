@@ -8,7 +8,7 @@ const list = (v) => String(v || '').split(',').map((s) => s.trim()).filter(Boole
 function loadConfig(env = process.env) {
   const dataDir = resolve(env.DATA_DIR || './data');
   return {
-    port: Number(env.PORT) || 3000,
+    port: Number(env.PORT) || 3000, // the actual port is chosen in listen.js
     timezone: env.TIMEZONE || 'Asia/Tashkent',
     dataDir,
     dbPath: path.join(dataDir, 'davomat.db'),

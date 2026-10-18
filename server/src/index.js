@@ -19,6 +19,7 @@ const { createBackup } = require('./backup');
 const { createTelegram } = require('./telegram');
 const { startDailyReport } = require('./report');
 const { lanAddresses } = require('./net');
+const { preferredPort, rememberPort, listenWithFallback } = require('./listen');
 const pkg = require('../package.json');
 
 const cfg = loadConfig();
@@ -53,13 +54,26 @@ store.on('devices', () => {
 const api = createApi({ store, auth, cfg, sync, backup, version: pkg.version });
 const app = createServer({ store, cfg, telegram, api });
 
-const httpServer = app.listen(cfg.port, () => {
+const { port: wantedPort, fixed } = preferredPort(cfg);
+
+listenWithFallback(app, wantedPort).then(({ port }) => {
+  cfg.port = port;
+  rememberPort(cfg, port);
   console.log(`🚀 Davomat tizimi ishga tushdi (v${pkg.version})`);
-  console.log(`   Shu kompyuterda: http://localhost:${cfg.port}`);
-  for (const ip of lanAddresses()) console.log(`   Tarmoqdagi manzil: http://${ip}:${cfg.port}`);
+  if (port !== wantedPort) {
+    console.warn(`
+⚠️  ${wantedPort}-port band edi, shuning uchun ${port}-port ishlatilmoqda (keyingi safar ham shu port bo'ladi).
+   Terminallar oldin ${wantedPort}-portga sozlangan bo'lsa: har bir terminalning HTTP Listening
+   sahifasida Port ni ${port} ga o'zgartiring (Terminallar sahifasida ham ko'rsatilgan).
+   Firewall: firewall-ochish.bat ni administrator sifatida qayta ishga tushiring.
+`);
+  }
+  console.log(`   Shu kompyuterda: http://localhost:${port}`);
+  for (const ip of lanAddresses()) console.log(`   Tarmoqdagi manzil: http://${ip}:${port}`);
   console.log(`   Baza: ${cfg.dbPath}`);
   console.log(`   ${store.employees.size} xodim, ${store.devices.size} terminal`);
-  if (store.countUsers() === 0) console.log(`👉 Birinchi marta: brauzerda http://localhost:${cfg.port} ni ochib administrator yarating`);
+  if (store.countUsers() === 0) console.log(`👉 Birinchi marta: brauzerda http://localhost:${port} ni ochib administrator yarating`);
+  if (process.env.OPEN_BROWSER === '1') openBrowser(`http://localhost:${port}`);
 
   monitor.checkAll().then(() => sync.schedule()).catch((e) => console.error(e));
   setInterval(() => {
@@ -76,19 +90,17 @@ const httpServer = app.listen(cfg.port, () => {
     telegram.startPolling();
     startDailyReport({ store, telegram, tz: cfg.timezone });
   }
-});
-
-httpServer.on('error', (err) => {
+}).catch((err) => {
   if (err.code === 'EADDRINUSE') {
-    console.error(`
-❌ ${cfg.port}-port band — uni boshqa dastur ishlatyapti.
-   1) Ehtimol tizim allaqachon ochiq: boshqa qora oynani yoping va qayta urinib ko'ring.
-   2) Yoki boshqa port tanlang: server\\.env faylida PORT=${cfg.port === 3050 ? 3080 : 3050} deb yozing
-      (fayl yo'q bo'lsa, server\\.env.example dan nusxa oling). Keyin terminallardagi
-      HTTP Listening portini ham shu raqamga o'zgartiring.
-   Portni kim band qilganini ko'rish: cmd → netstat -ano | findstr :${cfg.port}`);
+    console.error(`❌ ${wantedPort}–${wantedPort + 29} portlarning hammasi band${fixed ? ` (server\\.env dagi PORT=${wantedPort} ni o'zgartiring)` : ''}.`);
   } else {
     console.error('❌ Serverni ishga tushirib bo\'lmadi:', err.message);
   }
   process.exit(1);
 });
+
+function openBrowser(url) {
+  const { exec } = require('node:child_process');
+  const cmd = process.platform === 'win32' ? `start "" "${url}"` : process.platform === 'darwin' ? `open "${url}"` : `xdg-open "${url}"`;
+  exec(cmd, () => {});
+}

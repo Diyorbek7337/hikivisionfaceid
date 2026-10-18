@@ -35,11 +35,14 @@ Talablar: Windows 10/11, 4 GB RAM, doim yoqiq turadi, terminallar bilan **bitta 
 
 1. **Node.js** o'rnating: https://nodejs.org → **LTS** versiya (22 yoki yangiroq).
 2. Loyiha papkasini kompyuterga ko'chiring, masalan `C:\davomat`.
-3. `firewall-ochish.bat` → o'ng tugma → **Run as administrator** (bir marta). Bu terminallarga 3000-portga ulanishga ruxsat beradi.
+3. `firewall-ochish.bat` → o'ng tugma → **Run as administrator** (bir marta). Bu terminallar va boshqa kompyuterlarga tizimga ulanishga ruxsat beradi.
 4. `start-windows.bat` ni ikki marta bosing.
    - Birinchi marta paketlar o'rnatiladi va web sahifalar yig'iladi (internet kerak, 2–5 daqiqa).
    - Brauzer ochiladi → **Birinchi sozlash**: tashkilot nomi, administrator login va paroli.
    - **Qora oynani yopmang** — u tizimning o'zi.
+   - Port: odatda `3000`. Agar u band bo'lsa, tizim **keyingi bo'sh portni o'zi tanlaydi** (3001, 3002…) va uni eslab
+     qoladi — keyingi safar ham o'sha port ishlatiladi. Qaysi port ekani qora oynada va Terminallar sahifasida ko'rinadi.
+     Aniq port kerak bo'lsa: `server\.env.example` ni `server\.env` nomi bilan nusxalab, `PORT=` ni yozing.
 
 Muhim sozlamalar:
 
@@ -81,10 +84,10 @@ Tizimdagi **Terminallar** sahifasida "Terminalda sozlash" ni oching va bo'sh qat
 |---|---|
 | Destination IP or Host Name | server kompyuter IP si |
 | URL | `/hik/…/event` (tizim ko'rsatadi) |
-| Port | `3000` |
+| Port | tizim porti (odatda `3000`, Terminallar sahifasida ko'rsatilgan) |
 | Protocol | `HTTP` |
 
-→ **Save**.
+→ **Save**. Agar keyinchalik tizim porti o'zgarsa (qora oynada ogohlantirish chiqadi), terminaldagi Port ni ham yangilang.
 
 ---
 
@@ -151,7 +154,6 @@ Xodim ishdan ketsa: **Tahrirlash → "Faol" belgisini olib tashlang** — u term
 | Belgi | Yechim |
 |---|---|
 | Brauzerda sahifa ochilmayapti | Qora oyna (start-windows.bat) ishlayaptimi? |
-| "3000-port band" | Tizim allaqachon ochiq bo'lishi mumkin — boshqa qora oynani yoping. Yoki `server\.env.example` ni `server\.env` nomi bilan nusxalab, `PORT=3050` deb yozing; keyin `firewall-ochish.bat` ni qayta ishga tushiring va terminallardagi HTTP Listening portini ham 3050 qiling. |
 | Terminal "✗ ulanmagan" | Serverdan `ping <terminal IP>`; login/parol to'g'rimi? |
 | Skan qilinsa ham "Bugun"da chiqmayapti | Terminalda HTTP Listening; `firewall-ochish.bat`; **Eventlar** sahifasi. |
 | Eventlarda "Xodim topilmadi" | Terminalda tizimda yo'q odam bor — Terminallar → 🔄 Qayta yuborish. |
