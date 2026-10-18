@@ -120,6 +120,15 @@ test('import, schedules, faces, scans, report with absences', async (t) => {
   assert.equal(m.body.workedMinutes, 530);
   assert.equal(m.body.manual, true);
 
+  // Times like 8:05 are normalized; night shifts and future dates are refused
+  const m2 = await call('PUT', '/api/attendance', { employeeId: malika.id, date: '2026-01-14', checkIn: '8:05' });
+  assert.equal(m2.status, 200);
+  assert.equal((await call('PUT', '/api/attendance', { employeeId: malika.id, date: '2099-01-01', checkIn: '08:00' })).status, 400);
+  const night = await call('POST', '/api/schedules', { name: 'Tungi', days: { 1: { start: '20:00', end: '08:00' } } });
+  assert.equal(night.status, 400);
+  const s8 = await call('POST', '/api/schedules', { name: 'Erta', days: { 1: { start: '8:00', end: '9:30' } } });
+  assert.equal((await call('GET', '/api/schedules')).body.find((x) => x.id === s8.body.id).days['1'].start, '08:00');
+
   // Telegram daily report text
   const text = buildDailyReport(store, '2026-01-12', 'Asia/Tashkent');
   assert.match(text, /Kelgan: 1 \/ 2/);

@@ -1,6 +1,6 @@
 'use strict';
 /** Day and period summaries shared by the API (dashboard, report) and the Telegram daily report. */
-const { localDate } = require('./time');
+const { localDate, localMinutes, parseHHMM } = require('./time');
 const { salaryFor } = require('./attendance');
 
 function addDays(date, n) {
@@ -13,8 +13,29 @@ function employeeStartDate(emp, tz) {
   return emp.createdAt ? localDate(new Date(emp.createdAt), tz) : '2000-01-01';
 }
 
-/** Status of every active employee on one date. */
-function daySummary(store, date, tz) {
+/**
+ * Is `date` a day this employee was expected at work (so a missing scan means "absent")?
+ *   - not before they were registered; on the registration day only if registered before work started
+ *   - today only once work start + grace has passed (afternoon shifts are not "absent" in the morning)
+ * Returns 'yes' | 'no' | 'pending'.
+ */
+function expectedAtWork(emp, date, hours, ctx) {
+  if (!hours) return 'no';
+  const start = parseHHMM(hours.start);
+  const created = emp.createdAt ? new Date(emp.createdAt) : null;
+  if (created) {
+    const createdDay = localDate(created, ctx.tz);
+    if (date < createdDay) return 'no';
+    if (date === createdDay && start != null && localMinutes(created, ctx.tz) > start) return 'no';
+  }
+  if (date === ctx.today && start != null && localMinutes(ctx.now, ctx.tz) < start + (ctx.grace || 0)) return 'pending';
+  if (date > ctx.today) return 'pending';
+  return 'yes';
+}
+
+/** Status of every active employee on one date: present | late | absent | pending | off */
+function daySummary(store, date, tz, now = new Date()) {
+  const ctx = { tz, now, today: localDate(now, tz), grace: store.settings.lateGraceMinutes };
   const rows = [];
   const attendance = new Map(store.listAttendance(date, date).map((a) => [a.employeeId, a]));
   for (const emp of store.employees.values()) {
@@ -24,9 +45,10 @@ function daySummary(store, date, tz) {
     let status;
     if (att && att.checkIn) status = att.lateMinutes > 0 ? 'late' : 'present';
     else if (att && att.checkOut) status = 'present';
-    else if (!hours) status = 'off';
-    else if (date < employeeStartDate(emp, tz)) status = 'off';
-    else status = 'absent';
+    else {
+      const exp = expectedAtWork(emp, date, hours, ctx);
+      status = exp === 'yes' ? 'absent' : exp === 'pending' ? 'pending' : 'off';
+    }
     rows.push({ employee: publicEmployee(emp), hours, attendance: att, status });
   }
   rows.sort((a, b) => a.employee.name.localeCompare(b.employee.name));
@@ -34,8 +56,9 @@ function daySummary(store, date, tz) {
 }
 
 /** Per-employee totals for a period, including days absent (work days without a check-in). */
-function periodSummary(store, from, to, tz) {
-  const today = localDate(new Date(), tz);
+function periodSummary(store, from, to, tz, now = new Date()) {
+  const today = localDate(now, tz);
+  const ctx = { tz, now, today, grace: store.settings.lateGraceMinutes };
   const records = store.listAttendance(from, to);
   const byEmp = new Map();
   for (const r of records) {
@@ -56,10 +79,11 @@ function periodSummary(store, from, to, tz) {
     const end = [to, today].sort()[0];
     if (emp.active && !emp.deleted) {
       for (let d = start; d <= end; d = addDays(d, 1)) {
-        if (!store.getWorkHoursSync(emp, d)) continue;
-        s.workDays += 1;
         const r = recByDate.get(d);
-        if (!(r && (r.checkIn || r.checkOut))) s.absentDays += 1;
+        const came = !!(r && (r.checkIn || r.checkOut));
+        const exp = expectedAtWork(emp, d, store.getWorkHoursSync(emp, d), ctx);
+        if (exp === 'yes' || (came && exp === 'pending')) s.workDays += 1;
+        if (exp === 'yes' && !came) s.absentDays += 1;
       }
     }
     for (const r of recs) {
@@ -80,4 +104,4 @@ function publicEmployee(e) {
   return { ...rest, deviceSync };
 }
 
-module.exports = { daySummary, periodSummary, addDays, publicEmployee };
+module.exports = { daySummary, periodSummary, addDays, publicEmployee, expectedAtWork };

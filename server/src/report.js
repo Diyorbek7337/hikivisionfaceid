@@ -10,12 +10,14 @@ function esc(s) {
 function buildDailyReport(store, date, tz) {
   const rows = daySummary(store, date, tz);
   const working = rows.filter((r) => r.status !== 'off');
+  const pending = rows.filter((r) => r.status === 'pending');
   if (!working.length) return null; // day off for everybody
   const late = rows.filter((r) => r.status === 'late');
   const absent = rows.filter((r) => r.status === 'absent');
   const came = rows.filter((r) => r.status === 'present' || r.status === 'late');
   const org = store.settings.organizationName ? `${esc(store.settings.organizationName)}\n` : '';
   let text = `📊 <b>${org}Davomat — ${date}</b>\n\n✅ Kelgan: ${came.length} / ${working.length}\n⏰ Kechikkan: ${late.length}\n❌ Kelmagan: ${absent.length}\n`;
+  if (pending.length) text += `🕐 Ish vaqti hali boshlanmagan: ${pending.length}\n`;
   const list = (title, items, fmt) => {
     if (!items.length) return '';
     const shown = items.slice(0, 40).map(fmt).join('\n');
@@ -28,15 +30,14 @@ function buildDailyReport(store, date, tz) {
 
 /** Checks every minute whether it is time to send today's report. */
 function startDailyReport({ store, telegram, tz, log = console }) {
-  let sentFor = null;
   const tick = async () => {
     const s = store.settings;
     if (!telegram.enabled || !s.dailyReportEnabled) return;
     const now = new Date();
     const date = localDate(now, tz);
     const at = parseHHMM(s.dailyReportTime);
-    if (sentFor === date || at == null || localMinutes(now, tz) < at || localMinutes(now, tz) > at + 30) return;
-    sentFor = date;
+    if (s.dailyReportSentFor === date || at == null || localMinutes(now, tz) < at || localMinutes(now, tz) > at + 30) return;
+    store.saveSettings({ dailyReportSentFor: date }); // remembered across restarts
     const text = buildDailyReport(store, date, tz);
     if (!text) return;
     await telegram.notifyAdmins(text);

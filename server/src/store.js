@@ -14,6 +14,7 @@ const DEFAULT_SETTINGS = {
   dailyReportTime: '09:30',
   dailyReportEnabled: true,
   organizationName: '',
+  dailyReportSentFor: '',
 };
 
 const bool = (v) => !!Number(v);
@@ -150,7 +151,10 @@ class LocalStore extends EventEmitter {
   }
 
   deleteSchedule(id) {
-    const used = this.q('SELECT COUNT(*) AS n FROM employees WHERE schedule_id = ? AND deleted = 0').get(id).n;
+    const first = this.listSchedules()[0];
+    // Employees without an explicit schedule use the first one.
+    const implicit = first && first.id === id ? this.q('SELECT COUNT(*) AS n FROM employees WHERE schedule_id IS NULL AND deleted = 0').get().n : 0;
+    const used = this.q('SELECT COUNT(*) AS n FROM employees WHERE schedule_id = ? AND deleted = 0').get(id).n + implicit;
     if (used) throw Object.assign(new Error(`Bu jadval ${used} ta xodimga biriktirilgan`), { status: 400 });
     if (this.q('SELECT COUNT(*) AS n FROM schedules').get().n <= 1) {
       throw Object.assign(new Error('Kamida bitta jadval qolishi kerak'), { status: 400 });

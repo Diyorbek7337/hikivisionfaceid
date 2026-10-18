@@ -14,6 +14,11 @@ class HttpError extends Error {
 }
 const bad = (msg) => new HttpError(400, msg);
 const isDate = (s) => /^\d{4}-\d{2}-\d{2}$/.test(String(s || ''));
+/** "8:05" -> "08:05"; null when invalid */
+function normHHMM(v) {
+  const m = parseHHMM(v);
+  return m == null ? null : `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+}
 
 /** "2026-01-15" + "09:05" in the configured time zone -> Date */
 function dateFromLocal(date, hhmm, tz) {
@@ -47,8 +52,13 @@ function cleanSchedule(b) {
   for (let i = 0; i < 7; i += 1) {
     const d = b.days && b.days[String(i)];
     if (d && d.start && d.end) {
-      if (parseHHMM(d.start) == null || parseHHMM(d.end) == null) throw bad('Vaqt noto\'g\'ri');
-      days[String(i)] = { start: d.start, end: d.end };
+      const start = normHHMM(d.start);
+      const end = normHHMM(d.end);
+      if (!start || !end) throw bad('Vaqt noto\'g\'ri');
+      if (end <= start) {
+        throw bad('Ish tugash vaqti boshlanishidan keyin bo\'lishi kerak (tungi smena — yarim tundan o\'tadigan jadval hozircha qo\'llanmaydi)');
+      }
+      days[String(i)] = { start, end };
     } else days[String(i)] = null;
   }
   return { name, days };
@@ -249,14 +259,15 @@ function createApi({ store, auth, cfg, sync, backup, version }) {
   api.put('/attendance', wrap(async (req, res) => {
     const { employeeId, date } = req.body;
     const emp = store.getEmployee(Number(employeeId));
-    if (!emp) throw bad('Xodimni tanlang');
+    if (!emp || emp.deleted) throw bad('Xodimni tanlang');
     if (!isDate(date)) throw bad('Sana noto\'g\'ri');
-    const inT = String(req.body.checkIn || '');
-    const outT = String(req.body.checkOut || '');
+    if (date > localDate(new Date(), tz)) throw bad('Kelajakdagi sana uchun davomat kiritib bo\'lmaydi');
+    const inT = req.body.checkIn ? normHHMM(req.body.checkIn) : '';
+    const outT = req.body.checkOut ? normHHMM(req.body.checkOut) : '';
+    if (inT === null || outT === null) throw bad('Vaqt noto\'g\'ri');
     if (!inT && !outT) throw bad('Kamida bitta vaqtni kiriting');
-    if ((inT && parseHHMM(inT) == null) || (outT && parseHHMM(outT) == null)) throw bad('Vaqt noto\'g\'ri');
     const existing = await store.getAttendance(emp.id, date);
-    const hours = existing && existing.workStart ? { start: existing.workStart, end: existing.workEnd } : store.getWorkHoursSync(emp, date);
+    const hours = existing ? { start: existing.workStart, end: existing.workEnd } : store.getWorkHoursSync(emp, date);
     const rec = computeStats({
       ...(existing || {}),
       employeeId: emp.id, date, employeeNo: emp.employeeNo, employeeName: emp.name,
@@ -264,6 +275,8 @@ function createApi({ store, auth, cfg, sync, backup, version }) {
       hourlyRate: existing ? existing.hourlyRate : emp.hourlyRate,
       checkIn: inT ? dateFromLocal(date, inT, tz) : null,
       checkOut: outT ? dateFromLocal(date, outT, tz) : null,
+      ...(inT ? {} : { checkInDeviceId: null, checkInDeviceName: null }),
+      ...(outT ? {} : { checkOutDeviceId: null, checkOutDeviceName: null }),
       manual: true,
     }, store.settings, tz);
     if (rec.checkIn && rec.checkOut && rec.checkOut <= rec.checkIn) throw bad('Ketish vaqti kelishdan keyin bo\'lishi kerak');

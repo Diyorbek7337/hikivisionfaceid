@@ -32,9 +32,10 @@ function computeStats(rec, settings, tz) {
   return { ...rec, lateMinutes: late, earlyMinutes: early, workedMinutes: worked };
 }
 
+/** Pay for one day, rounded to whole so'm (totals are sums of rounded days, so they always add up). */
 function salaryFor(rec) {
   if (!rec.workedMinutes || !rec.hourlyRate) return 0;
-  return (rec.workedMinutes / 60) * rec.hourlyRate;
+  return Math.round((rec.workedMinutes / 60) * rec.hourlyRate);
 }
 
 /**
@@ -63,11 +64,25 @@ async function processScan(store, settings, tz, device, ev) {
     if (prev && Math.abs(t - prev) < debounceMs) return { action: 'duplicate', employee, record: existing };
   }
 
-  let direction = device.direction || 'auto';
-  if (direction === 'auto') direction = rec.checkIn ? 'out' : 'in';
-
   let action;
-  if (direction === 'in') {
+  const direction = device.direction || 'auto';
+  if (direction === 'auto') {
+    // One terminal for both ways: the earliest scan of the day is the arrival, the latest the departure.
+    // Deciding by time (not by arrival order) keeps late-delivered backlog scans correct.
+    const slots = [
+      rec.checkIn && { time: rec.checkIn, id: rec.checkInDeviceId, name: rec.checkInDeviceName },
+      rec.checkOut && { time: rec.checkOut, id: rec.checkOutDeviceId, name: rec.checkOutDeviceName },
+      { time: t, id: device.id, name: device.name || '', isNew: true },
+    ].filter(Boolean).sort((a, b) => a.time - b.time);
+    const first = slots[0];
+    const last = slots.length > 1 ? slots[slots.length - 1] : null;
+    if (!first.isNew && !(last && last.isNew)) return { action: 'repeat_in', employee, record: existing };
+    Object.assign(rec, {
+      checkIn: first.time, checkInDeviceId: first.id, checkInDeviceName: first.name,
+      checkOut: last ? last.time : null, checkOutDeviceId: last ? last.id : null, checkOutDeviceName: last ? last.name : null,
+    });
+    action = first.isNew ? 'checkin' : 'checkout';
+  } else if (direction === 'in') {
     if (rec.checkIn && rec.checkIn <= t) return { action: 'repeat_in', employee, record: existing };
     rec.checkIn = t;
     rec.checkInDeviceId = device.id;
@@ -82,14 +97,19 @@ async function processScan(store, settings, tz, device, ev) {
   }
 
   // Keep a copy of the details used for the calculation (reports stay correct after later edits).
-  const hours = await store.getWorkHours(employee, date);
-  Object.assign(rec, {
-    employeeNo: employee.employeeNo,
-    employeeName: employee.name,
-    workStart: hours ? hours.start : null,
-    workEnd: hours ? hours.end : null,
-    hourlyRate: Number(employee.hourlyRate) || 0,
-  });
+  // The first record of the day fixes them; later scans the same day reuse that snapshot.
+  if (existing) {
+    Object.assign(rec, { employeeNo: employee.employeeNo, employeeName: employee.name });
+  } else {
+    const hours = await store.getWorkHours(employee, date);
+    Object.assign(rec, {
+      employeeNo: employee.employeeNo,
+      employeeName: employee.name,
+      workStart: hours ? hours.start : null,
+      workEnd: hours ? hours.end : null,
+      hourlyRate: Number(employee.hourlyRate) || 0,
+    });
+  }
   const record = computeStats(rec, settings, tz);
   await store.saveAttendance(record);
   return { action, employee, record, time: t };
