@@ -30,7 +30,7 @@ export default function Settings() {
       <form className="card" onSubmit={save}>
         <h2>Umumiy</h2>
         <div className="grid">
-          <label>Tashkilot nomi<input value={form.organizationName || ''} onChange={set('organizationName')} /></label>
+          <label>Tashkilot nomi<input value={form.organizationName || ''} onChange={set('organizationName')} maxLength={100} /></label>
           <label>Kechikish hisoblanmaydigan vaqt (daqiqa)<input type="number" min="0" value={form.lateGraceMinutes} onChange={set('lateGraceMinutes')} /></label>
           <label>Takroriy skanlarni e&apos;tiborsiz qoldirish (soniya)<input type="number" min="0" value={form.debounceSeconds} onChange={set('debounceSeconds')} /></label>
           <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -88,6 +88,7 @@ function Users({ me }) {
   async function changePassword(u) {
     const p = prompt(`${u.username} uchun yangi parol (kamida 6 belgi):`);
     if (!p) return;
+    if (prompt('Yangi parolni yana bir marta kiriting:') !== p) { alert('Parollar bir xil emas'); return; }
     try {
       await api(`/users/${u.id}/password`, { method: 'PUT', body: { password: p } });
       alert('Parol o\'zgartirildi');

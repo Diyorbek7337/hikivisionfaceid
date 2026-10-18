@@ -5,6 +5,8 @@ export function SyncBadge({ employee, device }) {
   const s = employee.deviceSync && employee.deviceSync[device.id];
   const wanted = employee.active && !employee.deleted;
   if (!s && !wanted) return <span className="muted">—</span>;
+  const pending = !s || s.version !== employee.version;
+  if (pending && device.online === false) return <span className="pill muted" title={device.lastError}>terminal ulanmagan</span>;
   if (!s || s.version !== employee.version) return <span className="pill warn" title={device.name}>⏳</span>;
   if (s.status === 'error') return <span className="pill bad" title={s.message}>✗ {s.message}</span>;
   return <span className="pill ok" title={`${device.name}: ${localDateTime(s.at)}`}>✓</span>;

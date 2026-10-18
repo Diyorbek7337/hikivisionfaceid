@@ -23,7 +23,10 @@ main { max-width: 1150px; margin: auto; padding: 16px; }
 h1 { font-size: 22px; margin: 4px 0 16px; }
 h2 { font-size: 17px; margin: 0 0 12px; }
 table { width: 100%; border-collapse: collapse; }
-th, td { text-align: left; padding: 8px; border-bottom: 1px solid var(--line); white-space: nowrap; vertical-align: middle; }
+th, td { text-align: left; padding: 8px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+th { white-space: nowrap; }
+td { overflow-wrap: anywhere; }
+td.nw, .nw { white-space: nowrap; }
 th { font-size: 13px; color: var(--muted); font-weight: 600; }
 .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 16px; }
 .stat { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
@@ -65,3 +68,11 @@ button.stat.selected { border-color: var(--brand); box-shadow: 0 0 0 2px var(--b
 .list button.item { display: flex; width: 100%; text-align: left; gap: 10px; align-items: center; background: transparent; color: var(--text); border: 0; border-bottom: 1px solid var(--line); border-radius: 0; padding: 8px; }
 .list button.item.active { background: var(--bg); font-weight: 600; }
 .steps { padding-left: 20px; } .steps li { margin-bottom: 6px; }
+
+@media (max-width: 640px) {
+  .hide-sm { display: none; }
+  th, td { padding: 6px 4px; }
+  .facegrid .facelist { order: 2; }
+  .facegrid .list { max-height: 40vh; }
+  .modal table input[type=time] { width: 100px; }
+}

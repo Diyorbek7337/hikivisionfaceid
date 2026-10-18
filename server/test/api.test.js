@@ -77,7 +77,8 @@ test('import, schedules, faces, scans, report with absences', async (t) => {
   const emps = (await call('GET', '/api/employees')).body;
   assert.deepEqual(emps.map((e) => e.employeeNo), ['1', '2']);
   const aziz = emps.find((e) => e.name === 'Karimov Aziz');
-  await call('PUT', `/api/employees/${aziz.id}`, { ...aziz, scheduleId: sched.body.id, hourlyRate: 30000 });
+  const upd = await call('PUT', `/api/employees/${aziz.id}`, { ...aziz, scheduleId: sched.body.id, hourlyRate: 30000 });
+  assert.equal(upd.status, 200, JSON.stringify(upd.body));
 
   // Face upload
   assert.equal((await call('PUT', `/api/employees/${aziz.id}/face`, { image: 'bm90LWpwZWc=' })).status, 400);
@@ -90,7 +91,7 @@ test('import, schedules, faces, scans, report with absences', async (t) => {
   store.reloadEmployees(false);
 
   const dev = await call('POST', '/api/devices', { name: 'Kirish', ip: '127.0.0.1', password: 'x', direction: 'in' });
-  const devOut = await call('POST', '/api/devices', { name: 'Chiqish', ip: '127.0.0.1', password: 'x', direction: 'out' });
+  const devOut = await call('POST', '/api/devices', { name: 'Chiqish', ip: '127.0.0.1', port: 81, password: 'x', direction: 'out' });
   assert.equal((await call('GET', '/api/devices')).body[0].password, undefined);
 
   // Monday 2026-01-12: Aziz (2nd shift) arrives 13:20 -> 20 min late, leaves 18:00
@@ -120,6 +121,25 @@ test('import, schedules, faces, scans, report with absences', async (t) => {
   assert.equal(m.body.workedMinutes, 530);
   assert.equal(m.body.manual, true);
 
+  // "Qo'lda qo'shish" with only a check-out keeps the terminal's check-in
+  const keep = await call('PUT', '/api/attendance', { employeeId: aziz.id, date: '2026-01-12', checkOut: '18:30' });
+  assert.equal(keep.body.lateMinutes, 20, 'terminal check-in kept');
+  assert.equal(new Date(keep.body.checkIn).toISOString(), '2026-01-12T08:20:00.000Z');
+  // editing with replace: true and an empty check-in removes it
+  const rep2 = await call('PUT', '/api/attendance', { employeeId: aziz.id, date: '2026-01-12', checkIn: '', checkOut: '18:30', replace: true });
+  assert.equal(rep2.body.checkIn, null);
+  await call('PUT', '/api/attendance', { employeeId: aziz.id, date: '2026-01-12', checkIn: '13:20', checkOut: '18:00', replace: true });
+  // same terminal address twice is refused
+  assert.equal((await call('POST', '/api/devices', { name: 'Nusxa', ip: '127.0.0.1', password: 'x' })).status, 400);
+  // duplicate names: apostrophe forms do not matter
+  await call('POST', '/api/employees', { name: 'G‘ulomova Oʻgʻiloy' });
+  assert.equal((await call('POST', '/api/employees', { name: "g'ulomova  O'g'iloy" })).status, 409);
+  assert.equal((await call('POST', '/api/employees', { name: "g'ulomova  O'g'iloy", allowDuplicate: true })).status, 200);
+  // empty settings value keeps the old one; debounce has a floor
+  await call('PUT', '/api/settings', { debounceSeconds: '' });
+  assert.equal((await call('GET', '/api/status')).body.settings.debounceSeconds, 60);
+  assert.equal((await call('PUT', '/api/settings', { debounceSeconds: 0 })).body.debounceSeconds, 10);
+
   // Times like 8:05 are normalized; night shifts and future dates are refused
   const m2 = await call('PUT', '/api/attendance', { employeeId: malika.id, date: '2026-01-14', checkIn: '8:05' });
   assert.equal(m2.status, 200);
@@ -137,7 +157,7 @@ test('import, schedules, faces, scans, report with absences', async (t) => {
 
   // Delete employee -> hidden, schedule then deletable
   await call('DELETE', `/api/employees/${aziz.id}`);
-  assert.equal((await call('GET', '/api/employees')).body.length, 1);
+  assert.equal((await call('GET', '/api/employees')).body.length, 3);
   assert.equal((await call('DELETE', `/api/schedules/${sched.body.id}`)).status, 200);
   const evs = (await call('GET', '/api/events')).body;
   assert.equal(evs.length, 2);

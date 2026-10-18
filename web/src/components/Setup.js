@@ -24,7 +24,7 @@ export default function Setup({ allowed, onDone }) {
     return (
       <main className="center"><div className="card" style={{ maxWidth: 520 }}>
         <h1>Tizim hali sozlanmagan</h1>
-        <p>Birinchi sozlashni server kompyuterining o&apos;zida, brauzerda <code>http://localhost:3000</code> ni ochib bajaring.</p>
+        <p>Birinchi sozlashni server kompyuterining o&apos;zida, brauzerda <code>http://localhost:{typeof window !== 'undefined' ? window.location.port || 80 : 3000}</code> ni ochib bajaring.</p>
       </div></main>
     );
   }

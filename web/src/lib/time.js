@@ -86,3 +86,8 @@ export function addDays(dateStr, n) {
 }
 
 export const money = (n) => new Intl.NumberFormat('en-US').format(Math.round(n || 0));
+
+/** For search: lower case, one kind of apostrophe (O‘ Oʻ O' O’ are the same), single spaces. */
+export function normText(s) {
+  return String(s || '').toLowerCase().replace(/[‘’ʻʼ`´'‛ʹ′]/g, "'").replace(/\s+/g, ' ').trim();
+}

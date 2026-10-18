@@ -26,7 +26,7 @@ export default function Events() {
           <tbody>
             {(data || []).map((e) => (
               <tr key={e.id}>
-                <td>{localDateTime(e.receivedAt)}</td><td>{e.deviceName}</td><td>{localTime(e.time)}</td>
+                <td>{localDateTime(e.receivedAt)}</td><td>{e.deviceName}</td><td>{e.time && localDateTime(e.time).slice(0, 10) !== localDateTime(e.receivedAt).slice(0, 10) ? localDateTime(e.time) : localTime(e.time)}</td>
                 <td>{e.employeeNo && <code>{e.employeeNo}</code>}</td><td>{e.personName}</td>
                 <td>{LABELS[e.action] || e.action}
                   {e.action === 'unknown_employee' && <span className="hint"> — terminalda bor, tizimda yo&apos;q</span>}</td>

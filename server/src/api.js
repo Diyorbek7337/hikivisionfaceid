@@ -29,6 +29,11 @@ function dateFromLocal(date, hhmm, tz) {
 /** Express 4 does not catch rejected promises: pass them to the error handler. */
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
+/** Name key for duplicate checks: case, spaces and the many Uzbek apostrophe forms do not matter. */
+function nameKey(name) {
+  return String(name || '').toLowerCase().replace(/[‘’ʻʼ`´'‛ʹ′]/g, "'").replace(/\s+/g, ' ').trim();
+}
+
 /** Whole number within [min, max]; anything else (NaN, Infinity, '1e400') becomes min. */
 function clampInt(v, min, max) {
   const n = Math.round(Number(v));
@@ -96,7 +101,7 @@ function createApi({ store, auth, cfg, sync, backup, version }) {
     const username = String(req.body.username || '').trim();
     const password = String(req.body.password || '');
     if (!/^[\w.@-]{3,40}$/.test(username)) throw bad('Login 3–40 belgi: harf, raqam, . _ - @');
-    if (password.length < 6) throw bad('Parol kamida 6 belgi bo\'lsin');
+    if (password.trim().length < 6) throw bad('Parol kamida 6 belgi bo\'lsin (bo\'sh joylardan iborat bo\'lmasin)');
     if (req.body.organizationName) store.saveSettings({ organizationName: String(req.body.organizationName).trim() });
     const id = store.createUser({ username, name: req.body.name || '', passwordHash: auth.hashPassword(password) });
     auth.startSession(res, { id });
@@ -132,8 +137,10 @@ function createApi({ store, auth, cfg, sync, backup, version }) {
   api.put('/settings', (req, res) => {
     const b = req.body || {};
     const patch = {};
-    if (b.lateGraceMinutes !== undefined) patch.lateGraceMinutes = clampInt(b.lateGraceMinutes, 0, 240);
-    if (b.debounceSeconds !== undefined) patch.debounceSeconds = clampInt(b.debounceSeconds, 0, 3600);
+    const given = (v) => v !== undefined && v !== null && String(v).trim() !== '';
+    if (given(b.lateGraceMinutes)) patch.lateGraceMinutes = clampInt(b.lateGraceMinutes, 0, 240);
+    // at least 10 s: one scan delivered twice (push + terminal log) must never count as in + out
+    if (given(b.debounceSeconds)) patch.debounceSeconds = clampInt(b.debounceSeconds, 10, 3600);
     if (b.autoTimeSync !== undefined) patch.autoTimeSync = !!b.autoTimeSync;
     if (b.dailyReportEnabled !== undefined) patch.dailyReportEnabled = !!b.dailyReportEnabled;
     if (b.dailyReportTime !== undefined) {
@@ -172,7 +179,11 @@ function createApi({ store, auth, cfg, sync, backup, version }) {
   });
 
   api.post('/employees', (req, res) => {
-    const id = store.createEmployee(cleanEmployee(req.body));
+    const e = cleanEmployee(req.body);
+    if (!req.body.allowDuplicate && [...store.employees.values()].some((x) => !x.deleted && nameKey(x.name) === nameKey(e.name))) {
+      return res.status(409).json({ error: `"${e.name}" ismli xodim allaqachon bor`, duplicate: true });
+    }
+    const id = store.createEmployee(e);
     if (req.body.image) store.setFace(id, decodeImage(req.body.image));
     res.json(store.getEmployee(id));
   });
@@ -181,13 +192,13 @@ function createApi({ store, auth, cfg, sync, backup, version }) {
     const rows = Array.isArray(req.body.rows) ? req.body.rows : [];
     if (!rows.length) throw bad('Ro\'yxat bo\'sh');
     if (rows.length > 2000) throw bad('Bir martada 2000 tadan ko\'p emas');
-    const existing = new Set([...store.employees.values()].filter((e) => !e.deleted).map((e) => e.name.toLowerCase().replace(/\s+/g, ' ')));
+    const existing = new Set([...store.employees.values()].filter((e) => !e.deleted).map((e) => nameKey(e.name)));
     const toAdd = [];
     let skipped = 0;
     for (const r of rows) {
       let e;
       try { e = cleanEmployee({ ...r, scheduleId: r.scheduleId || req.body.scheduleId }); } catch { skipped += 1; continue; }
-      const key = e.name.toLowerCase().replace(/\s+/g, ' ');
+      const key = nameKey(e.name);
       if (existing.has(key)) { skipped += 1; continue; }
       existing.add(key);
       toAdd.push(e);
@@ -259,11 +270,21 @@ function createApi({ store, auth, cfg, sync, backup, version }) {
     return d;
   }
 
-  api.post('/devices', (req, res) => res.json({ id: store.saveDevice(cleanDevice(req.body)) }));
+  function assertUniqueAddress(d, id) {
+    const other = [...store.devices.values()].find((x) => x.id !== id && x.ip === d.ip && Number(x.port) === Number(d.port));
+    if (other) throw bad(`Bu manzil (${d.ip}) allaqachon "${other.name}" terminaliga berilgan`);
+  }
+  api.post('/devices', (req, res) => {
+    const d = cleanDevice(req.body);
+    assertUniqueAddress(d, null);
+    res.json({ id: store.saveDevice(d) });
+  });
   api.put('/devices/:id', (req, res) => {
     const existing = store.getDevice(req.params.id);
     if (!existing) throw new HttpError(404, 'Terminal topilmadi');
-    store.saveDevice({ ...cleanDevice(req.body, existing), id: existing.id });
+    const d = cleanDevice(req.body, existing);
+    assertUniqueAddress(d, existing.id);
+    store.saveDevice({ ...d, id: existing.id });
     res.json({ ok: true });
   });
   api.delete('/devices/:id', (req, res) => { store.deleteDevice(req.params.id); res.json({ ok: true }); });
@@ -290,19 +311,25 @@ function createApi({ store, auth, cfg, sync, backup, version }) {
     if (!emp || emp.deleted) throw bad('Xodimni tanlang');
     if (!isDate(date)) throw bad('Sana noto\'g\'ri');
     if (date > localDate(new Date(), tz)) throw bad('Kelajakdagi sana uchun davomat kiritib bo\'lmaydi');
-    const inT = req.body.checkIn ? normHHMM(req.body.checkIn) : '';
-    const outT = req.body.checkOut ? normHHMM(req.body.checkOut) : '';
+    let inT = req.body.checkIn ? normHHMM(req.body.checkIn) : '';
+    let outT = req.body.checkOut ? normHHMM(req.body.checkOut) : '';
     if (inT === null || outT === null) throw bad('Vaqt noto\'g\'ri');
-    if (!inT && !outT) throw bad('Kamida bitta vaqtni kiriting');
     const existing = await store.getAttendance(emp.id, date);
+    // "Qo'lda qo'shish" (no `replace`): an empty field keeps what the terminal already recorded.
+    // Editing a shown record sends `replace: true`, so clearing a field there removes that time.
+    if (!req.body.replace && existing) {
+      if (!inT && existing.checkIn) inT = localTime(existing.checkIn, tz);
+      if (!outT && existing.checkOut) outT = localTime(existing.checkOut, tz);
+    }
+    if (!inT && !outT) throw bad('Kamida bitta vaqtni kiriting');
     const hours = existing ? { start: existing.workStart, end: existing.workEnd } : store.getWorkHoursSync(emp, date);
     const rec = computeStats({
       ...(existing || {}),
       employeeId: emp.id, date, employeeNo: emp.employeeNo, employeeName: emp.name,
       workStart: hours ? hours.start : null, workEnd: hours ? hours.end : null,
       hourlyRate: existing ? existing.hourlyRate : emp.hourlyRate,
-      checkIn: inT ? dateFromLocal(date, inT, tz) : null,
-      checkOut: outT ? dateFromLocal(date, outT, tz) : null,
+      checkIn: inT ? (existing && existing.checkIn && inT === localTime(existing.checkIn, tz) ? existing.checkIn : dateFromLocal(date, inT, tz)) : null,
+      checkOut: outT ? (existing && existing.checkOut && outT === localTime(existing.checkOut, tz) ? existing.checkOut : dateFromLocal(date, outT, tz)) : null,
       ...(inT ? {} : { checkInDeviceId: null, checkInDeviceName: null }),
       ...(outT ? {} : { checkOutDeviceId: null, checkOutDeviceName: null }),
       manual: true,
@@ -366,4 +393,4 @@ function publicDevice(d) {
   return { ...rest, hasPassword: !!password };
 }
 
-module.exports = { createApi, dateFromLocal };
+module.exports = { createApi, dateFromLocal, nameKey };

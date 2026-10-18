@@ -19,8 +19,12 @@ export default function Devices() {
 
   async function resync(d) {
     if (!confirm(`"${d.name}" ga barcha xodim va yuzlar qayta yuboriladi.\nTerminalda bo'lib, tizimda yo'q odamlar terminaldan o'chiriladi. Davom etasizmi?`)) return;
-    await api(`/devices/${d.id}/resync`, { method: 'POST' });
-    reload();
+    try {
+      await api(`/devices/${d.id}/resync`, { method: 'POST' });
+      reload();
+    } catch (err) {
+      alert(err.message);
+    }
   }
 
   return (
@@ -94,8 +98,12 @@ function DeviceForm({ device, onClose }) {
 
   async function remove() {
     if (!confirm(`"${device.name}" o'chirilsinmi? (Terminaldagi xodimlar o'chirilmaydi)`)) return;
-    await api(`/devices/${device.id}`, { method: 'DELETE' });
-    onClose(true);
+    try {
+      await api(`/devices/${device.id}`, { method: 'DELETE' });
+      onClose(true);
+    } catch (err) {
+      setError(err.message);
+    }
   }
 
   return (

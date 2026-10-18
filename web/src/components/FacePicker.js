@@ -16,8 +16,8 @@ export default function FacePicker({ src, onChange }) {
     try {
       setError('');
       onChange(await toFaceJpeg(f));
-    } catch (err) {
-      setError(err.message);
+    } catch {
+      setError('Bu faylni rasm sifatida ochib bo\'lmadi. JPG yoki PNG rasm tanlang.');
     }
   }
 

@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useApi, faceUrl } from '@/lib/api';
-import { money } from '@/lib/time';
+import { money, normText } from '@/lib/time';
 import { SyncBadge, ErrorBox } from '@/components/ui';
 
 export default function Employees() {
@@ -17,7 +17,7 @@ export default function Employees() {
 
   const list = (all || [])
     .filter((e) => showInactive || e.active)
-    .filter((e) => !q || `${e.name} ${e.employeeNo} ${e.position || ''}`.toLowerCase().includes(q.toLowerCase()))
+    .filter((e) => !q || normText(`${e.name} ${e.employeeNo} ${e.position || ''}`).includes(normText(q)))
     .sort((a, b) => a.name.localeCompare(b.name));
   const noFace = (all || []).filter((e) => e.active && !e.hasFace).length;
 

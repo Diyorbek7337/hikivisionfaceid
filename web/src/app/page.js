@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useApi } from '@/lib/api';
-import { localTime, formatDuration } from '@/lib/time';
+import { localTime, formatDuration, normText } from '@/lib/time';
 import { DeviceStatus, ErrorBox } from '@/components/ui';
 
 const STATUS = {
@@ -25,7 +25,7 @@ export default function Dashboard() {
   const inside = rows.filter((r) => r.attendance && r.attendance.checkIn && !r.attendance.checkOut).length;
   const shown = rows
     .filter((r) => filter === 'all' || r.status === filter || (filter === 'present' && r.status === 'late'))
-    .filter((r) => !q || r.employee.name.toLowerCase().includes(q.toLowerCase()));
+    .filter((r) => !q || normText(r.employee.name).includes(normText(q)));
 
   const Stat = ({ n, label, cls, f }) => (
     <button type="button" className={`stat ${filter === f ? 'selected' : ''}`} onClick={() => setFilter(filter === f ? 'all' : f)}>
@@ -49,20 +49,21 @@ export default function Dashboard() {
           <label style={{ flex: 1, minWidth: 200 }}>Qidirish<input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Ism" /></label>
         </div>
         <table>
-          <thead><tr><th>Xodim</th><th>Lavozim</th><th>Ish vaqti</th><th>Keldi</th><th>Ketdi</th><th>Holat</th></tr></thead>
+          <thead><tr><th>Xodim</th><th className="hide-sm">Lavozim</th><th className="hide-sm">Ish vaqti</th><th>Keldi</th><th>Ketdi</th><th>Holat</th></tr></thead>
           <tbody>
             {shown.map(({ employee, hours, attendance, status }) => (
               <tr key={employee.id}>
                 <td>{employee.name}</td>
-                <td className="muted">{employee.position}</td>
-                <td>{hours ? `${hours.start}–${hours.end}` : <span className="muted">—</span>}</td>
-                <td>{attendance ? localTime(attendance.checkIn) : ''}</td>
-                <td>{attendance ? localTime(attendance.checkOut) : ''}</td>
-                <td>{status === 'late'
+                <td className="muted hide-sm">{employee.position}</td>
+                <td className="hide-sm nw">{hours ? `${hours.start}–${hours.end}` : <span className="muted">—</span>}</td>
+                <td className="nw">{attendance ? localTime(attendance.checkIn) : ''}</td>
+                <td className="nw">{attendance ? localTime(attendance.checkOut) : ''}</td>
+                <td className="nw">{status === 'late'
                   ? <span className="pill warn">Kechikdi: {formatDuration(attendance.lateMinutes)}</span>
                   : STATUS[status]}</td>
               </tr>
             ))}
+            {rows.length > 0 && !shown.length && <tr><td colSpan={6} className="muted">Hech kim topilmadi</td></tr>}
             {!rows.length && <tr><td colSpan={6} className="muted">Hali xodim yo&apos;q. <Link href="/employees/import/">Excel&apos;dan import</Link> yoki <Link href="/employees/edit/">qo&apos;lda qo&apos;shish</Link></td></tr>}
           </tbody>
         </table>

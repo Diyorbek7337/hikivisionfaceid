@@ -22,6 +22,7 @@ function EmployeeForm() {
   const [loading, setLoading] = useState(!!id);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [notFound, setNotFound] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -29,7 +30,7 @@ function EmployeeForm() {
       setOriginal(e);
       setForm({ ...EMPTY, ...e, scheduleId: e.scheduleId || '' });
       setLoading(false);
-    }).catch((e) => { setError(e.message); setLoading(false); });
+    }).catch((e) => { if (e.status === 404 || e.status === 400) setNotFound(true); else setError(e.message); setLoading(false); });
   }, [id]);
 
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value }));
@@ -44,7 +45,12 @@ function EmployeeForm() {
         await api(`/employees/${id}`, { method: 'PUT', body });
         if (face !== undefined) await api(`/employees/${id}/face`, { method: 'PUT', body: { image: face } });
       } else {
-        await api('/employees', { method: 'POST', body: { ...body, image: face || undefined } });
+        try {
+          await api('/employees', { method: 'POST', body: { ...body, image: face || undefined } });
+        } catch (err) {
+          if (err.status !== 409 || !confirm(`${err.message}.\nBaribir yana bitta shunday xodim qo'shilsinmi?`)) throw err;
+          await api('/employees', { method: 'POST', body: { ...body, image: face || undefined, allowDuplicate: true } });
+        }
       }
       router.push('/employees/');
     } catch (err) {
@@ -66,6 +72,7 @@ function EmployeeForm() {
   }
 
   if (loading) return <p className="muted">Yuklanmoqda…</p>;
+  if (notFound) return <div className="card"><h1>Xodim topilmadi</h1><p>U o&apos;chirilgan bo&apos;lishi mumkin.</p><Link href="/employees/">← Xodimlar ro&apos;yxati</Link></div>;
   let src = null;
   if (face) src = `data:image/jpeg;base64,${face}`;
   else if (face === undefined && original && original.hasFace) src = faceUrl(original);
@@ -80,9 +87,9 @@ function EmployeeForm() {
           <FacePicker src={src} onChange={setFace} />
         </div>
         <div className="card grid">
-          <label>F.I.Sh. *<input value={form.name} onChange={set('name')} required /></label>
-          <label>Lavozim<input value={form.position} onChange={set('position')} placeholder="O'qituvchi, qorovul…" /></label>
-          <label>Telefon<input value={form.phone} onChange={set('phone')} /></label>
+          <label>F.I.Sh. *<input value={form.name} onChange={set('name')} maxLength={100} required /></label>
+          <label>Lavozim<input value={form.position} onChange={set('position')} maxLength={100} placeholder="O'qituvchi, qorovul…" /></label>
+          <label>Telefon<input value={form.phone} onChange={set('phone')} maxLength={30} /></label>
           <label>Ish jadvali<select value={form.scheduleId} onChange={set('scheduleId')}>
             {(schedules || []).map((s) => <option key={s.id} value={s.id}>{s.name} — {scheduleSummary(s)}</option>)}
           </select></label>

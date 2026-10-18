@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { api, useApi, faceUrl } from '@/lib/api';
 import { toFaceJpeg } from '@/lib/image';
+import { normText } from '@/lib/time';
 import { CameraView } from '@/components/FacePicker';
 import { ErrorBox } from '@/components/ui';
 
@@ -19,17 +20,20 @@ export default function Faces() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
   const [err, setErr] = useState('');
+  const [savedIds, setSavedIds] = useState(() => new Set()); // saved here, until the list reloads
   const fileRef = useRef(null);
 
-  const active = (employees || []).filter((e) => e.active).sort((a, b) => a.name.localeCompare(b.name));
+  const active = (employees || []).filter((e) => e.active)
+    .map((e) => (savedIds.has(e.id) ? { ...e, hasFace: true } : e))
+    .sort((a, b) => a.name.localeCompare(b.name));
   const list = active
     .filter((e) => showAll || !e.hasFace || (selected && e.id === selected.id))
-    .filter((e) => !q || e.name.toLowerCase().includes(q.toLowerCase()));
+    .filter((e) => !q || normText(e.name).includes(normText(q)));
   const missing = active.filter((e) => !e.hasFace).length;
 
   useEffect(() => {
-    if (!selected && list.length) setSelected(list[0]);
-  }, [list, selected]);
+    if (!selected && list.length && !list.every((e) => e.hasFace && !showAll)) setSelected(list[0]);
+  }, [list, selected, showAll]);
 
   async function save() {
     if (!photo || !selected) return;
@@ -37,8 +41,11 @@ export default function Faces() {
     try {
       await api(`/employees/${selected.id}/face`, { method: 'PUT', body: { image: photo } });
       setMsg(`✅ ${selected.name} — saqlandi`);
+      setSavedIds((prev) => new Set(prev).add(selected.id));
       const idx = list.findIndex((e) => e.id === selected.id);
-      const next = list.slice(idx + 1).find((e) => showAll || !e.hasFace) || list.slice(0, idx).find((e) => !e.hasFace);
+      const pendingList = list.filter((e) => e.id !== selected.id);
+      const next = showAll ? list[idx + 1] || null
+        : pendingList.slice(Math.max(0, idx)).find((e) => !e.hasFace) || pendingList.find((e) => !e.hasFace) || null;
       setPhoto(null);
       setSelected(next || null);
       reload();
@@ -52,7 +59,13 @@ export default function Faces() {
   async function onFile(e) {
     const f = e.target.files && e.target.files[0];
     e.target.value = '';
-    if (f) setPhoto(await toFaceJpeg(f));
+    if (!f) return;
+    try {
+      setErr('');
+      setPhoto(await toFaceJpeg(f));
+    } catch {
+      setErr('Bu faylni rasm sifatida ochib bo\'lmadi. JPG yoki PNG rasm tanlang (iPhone\'da: Sozlamalar → Kamera → Formatlar → "Eng mos").');
+    }
   }
 
   return (
@@ -61,7 +74,7 @@ export default function Faces() {
       <ErrorBox error={error} />
       <p className="muted">Rasmi yo&apos;q: <b>{missing}</b> / {active.length}. Xodimni tanlang → rasmga oling → Saqlash. Keyingi xodim avtomatik tanlanadi.</p>
       <div className="facegrid">
-        <div className="card">
+        <div className="card facelist">
           <div className="row" style={{ marginBottom: 8 }}>
             <label style={{ flex: 1 }}>Qidirish<input value={q} onChange={(e) => setQ(e.target.value)} /></label>
             <label style={{ display: 'flex', gap: 6, alignItems: 'center', paddingBottom: 8 }}>
@@ -76,7 +89,7 @@ export default function Faces() {
                 <span>{e.name}<br /><span className="hint">{e.position}</span></span>
               </button>
             ))}
-            {employees && !list.length && <p className="ok">🎉 Hammaning rasmi bor.</p>}
+            {employees && !list.some((e) => showAll || !e.hasFace) && <p className="ok">🎉 Hammaning rasmi bor.</p>}
           </div>
         </div>
         <div className="card">
@@ -95,7 +108,7 @@ export default function Faces() {
                 </>
               ) : (
                 <>
-                  <CameraView key={selected.id} onShot={async (c) => setPhoto(await toFaceJpeg(c))} />
+                  <CameraView key={selected.id} onShot={async (c) => { setErr(''); setPhoto(await toFaceJpeg(c)); }} />
                   <button type="button" className="secondary" style={{ marginTop: 8, width: '100%' }} onClick={() => fileRef.current.click()}>📁 Rasm yuklash / telefon kamerasi</button>
                   <input ref={fileRef} type="file" accept="image/*" capture="user" hidden onChange={onFile} />
                 </>

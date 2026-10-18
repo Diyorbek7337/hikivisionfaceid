@@ -6,13 +6,34 @@ import { readSheet } from 'read-excel-file/browser';
 import { api, useApi } from '@/lib/api';
 import { scheduleSummary } from '@/components/ui';
 
+// Header words in Uzbek (Latin and Cyrillic) and Russian.
 const GUESS = {
-  last: /f\.?\s*i\.?\s*sh|ф\.?\s*и\.?\s*о|fio|familiya|фамилия|ism.*familiya|full\s*name/i,
-  first: /^(ism|исм|имя|name)$/i,
-  middle: /otasining|sharif|отчество|шариф/i,
+  last: /f\.?\s*i\.?\s*sh|ф\.?\s*и\.?\s*[шо]|fio|familiya|фамили|ism.*familiya|full\s*name/i,
+  first: /^(ism|ismi|исм|исми|имя|name|first\s*name)$/i,
+  middle: /otasining|sharif|отчеств|шариф|middle/i,
   position: /lavozim|должност|лавозим|position/i,
   phone: /telefon|тел|phone/i,
 };
+
+function guessColumns(headers) {
+  const m = { last: '', first: '', middle: '', position: '', phone: '' };
+  headers.forEach((t, i) => {
+    for (const [k, re] of Object.entries(GUESS)) if (m[k] === '' && re.test(t)) { m[k] = String(i); break; }
+  });
+  if (m.last === '' && m.first !== '') { m.last = m.first; m.first = ''; }
+  return m;
+}
+
+/** The header row: the first of the top rows with a recognisable name column; else the first row with 2+ cells. */
+function guessHeaderRow(data) {
+  const top = data.slice(0, 20);
+  const byName = top.findIndex((r) => r.some((c) => GUESS.last.test(c) || GUESS.first.test(c)));
+  if (byName !== -1) return byName;
+  const any = top.findIndex((r) => r.filter(Boolean).length >= 2);
+  return any === -1 ? 0 : any;
+}
+
+const FOOTER = /^(jami|итого|всего|жами|imzo|direktor)/i;
 
 const clean = (v) => (v == null ? '' : String(v).trim());
 
@@ -34,17 +55,12 @@ export default function ImportPage() {
     setError(''); setResult(null);
     try {
       const data = (await readSheet(f)).map((r) => r.map(clean));
-      const h = data.findIndex((r) => r.filter(Boolean).length >= 2);
-      const hi = h === -1 ? 0 : h;
-      const headers = data[hi] || [];
-      const m = { last: '', first: '', middle: '', position: '', phone: '' };
-      headers.forEach((t, i) => {
-        for (const [k, re] of Object.entries(GUESS)) if (m[k] === '' && re.test(t)) { m[k] = String(i); break; }
-      });
-      if (m.last === '' && m.first !== '') { m.last = m.first; m.first = ''; }
+      const hi = guessHeaderRow(data);
+      const m = guessColumns(data[hi] || []);
       setRows(data); setHeaderRow(hi); setMap(m); setFileName(f.name);
     } catch (err) {
-      setError(`Faylni o'qib bo'lmadi: ${err.message}. Fayl .xlsx formatida bo'lishi kerak (Excel'da "Saqlash" → .xlsx).`);
+      setRows(null);
+      setError('Faylni o\'qib bo\'lmadi. Fayl .xlsx formatida bo\'lishi kerak: Excel\'da faylni oching → "Сохранить как / Save as" → "Книга Excel (.xlsx)".');
     }
   }
 
@@ -58,7 +74,7 @@ export default function ImportPage() {
         position: map.position === '' ? '' : r[Number(map.position)],
         phone: map.phone === '' ? '' : r[Number(map.phone)],
       };
-    }).filter((p) => p.name && !/^\d+$/.test(p.name));
+    }).filter((p) => p.name && !/^[\d\s.,-]+$/.test(p.name) && !FOOTER.test(p.name));
   }, [rows, headerRow, map]);
 
   async function doImport() {
@@ -100,7 +116,7 @@ export default function ImportPage() {
               <li>Faylni tanlang (.xlsx).</li>
               <li>Ustunlarni tekshiring va &quot;Import qilish&quot; ni bosing. Bir xil ismli xodim ikki marta qo&apos;shilmaydi.</li>
             </ol>
-            <input type="file" accept=".xlsx" onChange={onFile} />
+            <input type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={onFile} />
             {fileName && <p className="muted">{fileName}: {rows.length} qator</p>}
           </div>
           {rows && (
@@ -108,7 +124,7 @@ export default function ImportPage() {
               <div className="card">
                 <h2>Ustunlar</h2>
                 <div className="grid">
-                  <label>Sarlavha qatori<select value={headerRow} onChange={(e) => setHeaderRow(Number(e.target.value))}>
+                  <label>Sarlavha qatori<select value={headerRow} onChange={(e) => { const i = Number(e.target.value); setHeaderRow(i); setMap(guessColumns(rows[i] || [])); }}>
                     {rows.slice(0, 15).map((r, i) => <option key={i} value={i}>{i + 1}-qator: {r.filter(Boolean).slice(0, 3).join(', ')}</option>)}
                   </select></label>
                   {col('last', "Familiya yoki F.I.Sh. *")}
@@ -129,7 +145,11 @@ export default function ImportPage() {
                 <table style={{ marginTop: 12 }}>
                   <thead><tr><th>#</th><th>F.I.Sh.</th><th>Lavozim</th><th>Telefon</th></tr></thead>
                   <tbody>
-                    {people.slice(0, 20).map((p, i) => <tr key={i}><td>{i + 1}</td><td>{p.name}</td><td>{p.position}</td><td>{p.phone}</td></tr>)}
+                    {people.slice(0, 20).map((p, i) => (
+                      <tr key={i}><td>{i + 1}</td>
+                        <td>{p.name} {p.name.split(' ').length < 2 && <span className="pill warn" title="Ism yoki familiya ustuni tanlanmagan bo'lishi mumkin">faqat 1 so&apos;z</span>}</td>
+                        <td>{p.position}</td><td>{p.phone}</td></tr>
+                    ))}
                     {people.length > 20 && <tr><td colSpan={4} className="muted">… va yana {people.length - 20} ta</td></tr>}
                     {!people.length && <tr><td colSpan={4} className="muted">F.I.Sh. ustunini tanlang</td></tr>}
                   </tbody>

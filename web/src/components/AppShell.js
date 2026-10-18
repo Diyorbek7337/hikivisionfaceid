@@ -25,6 +25,7 @@ export default function AppShell({ children }) {
   const [session, setSession] = useState(null);
   const [status, setStatus] = useState(null);
   const [error, setError] = useState('');
+  const [expired, setExpired] = useState(false);
   const pathname = usePathname();
 
   const refresh = useCallback(async () => {
@@ -44,7 +45,8 @@ export default function AppShell({ children }) {
 
   useEffect(() => {
     refresh();
-    const onUnauthorized = () => setSession((s) => (s ? { ...s, user: null } : s));
+    // Session ended while working: show the login on top of the page so typed data is not lost.
+    const onUnauthorized = () => setExpired(true);
     window.addEventListener('davomat:unauthorized', onUnauthorized);
     return () => window.removeEventListener('davomat:unauthorized', onUnauthorized);
   }, [refresh]);
@@ -73,6 +75,14 @@ export default function AppShell({ children }) {
         <button className="secondary small" onClick={logout} title={session.user.username}>Chiqish</button>
       </nav></header>
       <main>{status ? children : <p className="muted">Yuklanmoqda…</p>}</main>
+      {expired && (
+        <div className="modal-back">
+          <div className="modal" style={{ padding: 0 }}>
+            <Login embedded message="Sessiya tugadi — qayta kiring. Kiritgan ma'lumotlaringiz saqlanib qoldi, kirgach yana &quot;Saqlash&quot; ni bosing."
+              onDone={() => { setExpired(false); refresh(); }} />
+          </div>
+        </div>
+      )}
     </Ctx.Provider>
   );
 }

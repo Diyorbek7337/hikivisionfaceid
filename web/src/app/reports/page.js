@@ -36,13 +36,13 @@ export default function Reports() {
     out.push(['Xodim', 'ID', 'Lavozim', 'Ish kunlari', 'Kelgan', 'Kelmagan', 'Kechikishlar', 'Jami kechikish (daq)', 'Erta ketishlar', 'Ishlagan (soat)', "Summa (so'm)"]);
     for (const s of summary) {
       out.push([s.name, s.employeeNo, s.position, s.workDays, s.presentDays, s.absentDays, s.lateCount, s.lateMinutes, s.earlyCount,
-        (s.workedMinutes / 60).toFixed(2), Math.round(s.pay)]);
+        (s.workedMinutes / 60).toFixed(2).replace('.', ','), Math.round(s.pay)]);
     }
     out.push([]);
     out.push(['Sana', 'Xodim', 'ID', 'Keldi', 'Ketdi', 'Kechikish (daq)', 'Erta ketish (daq)', 'Ishlagan (soat)', "Summa (so'm)", "Qo'lda"]);
     for (const r of [...records].reverse()) {
       out.push([r.date, r.employeeName, r.employeeNo, localTime(r.checkIn), localTime(r.checkOut), r.lateMinutes || 0, r.earlyMinutes || 0,
-        r.workedMinutes != null ? (r.workedMinutes / 60).toFixed(2) : '', Math.round(pay(r)), r.manual ? 'ha' : '']);
+        r.workedMinutes != null ? (r.workedMinutes / 60).toFixed(2).replace('.', ',') : '', Math.round(pay(r)), r.manual ? 'ha' : '']);
     }
     const blob = new Blob([`﻿${out.map((l) => l.map(cell).join(';')).join('\r\n')}\r\n`], { type: 'text/csv;charset=utf-8' });
     const a = document.createElement('a');
@@ -53,6 +53,7 @@ export default function Reports() {
   }
 
   const activeEmployees = (employees || []).filter((e) => e.active).sort((a, b) => a.name.localeCompare(b.name));
+  const allEmployees = (employees || []).slice().sort((a, b) => a.name.localeCompare(b.name));
 
   return (
     <>
@@ -63,12 +64,13 @@ export default function Reports() {
         <label>Gacha<input type="date" value={to} onChange={(e) => setTo(e.target.value)} /></label>
         <label>Xodim<select value={employeeId} onChange={(e) => setEmployeeId(e.target.value)}>
           <option value="">Hammasi</option>
-          {activeEmployees.map((e) => <option key={e.id} value={String(e.id)}>{e.name}</option>)}
+          {allEmployees.map((e) => <option key={e.id} value={String(e.id)}>{e.name}{e.active ? '' : ' (nofaol)'}</option>)}
         </select></label>
         <button onClick={() => (query === `from=${from}&to=${to}` ? reload() : setQuery(`from=${from}&to=${to}`))} disabled={loading}>
           {loading ? 'Yuklanmoqda…' : 'Ko\'rsatish'}
         </button>
-        <button className="secondary" onClick={exportCsv} disabled={!data}>Excel (CSV)</button>
+        <button className="secondary" onClick={exportCsv} disabled={!data || data.from !== from || data.to !== to}
+          title={data && (data.from !== from || data.to !== to) ? 'Avval "Ko\'rsatish" ni bosing' : ''}>Excel (CSV)</button>
         <button className="secondary" onClick={() => setEditing({ date: today })}>+ Qo&apos;lda qo&apos;shish</button>
       </div>
 
@@ -127,7 +129,8 @@ function RecordForm({ record, employees, onClose }) {
   async function save(e) {
     e.preventDefault();
     try {
-      await api('/attendance', { method: 'PUT', body: { employeeId: Number(employeeId), date, checkIn, checkOut } });
+      // editing a shown record replaces both times; "Qo'lda qo'shish" keeps the terminal's times for empty fields
+      await api('/attendance', { method: 'PUT', body: { employeeId: Number(employeeId), date, checkIn, checkOut, replace: !isNew } });
       onClose(true);
     } catch (err) {
       setError(err.message);
@@ -136,8 +139,12 @@ function RecordForm({ record, employees, onClose }) {
 
   async function remove() {
     if (!confirm('Bu yozuv o\'chirilsinmi?')) return;
-    await api(`/attendance/${record.id}`, { method: 'DELETE' });
-    onClose(true);
+    try {
+      await api(`/attendance/${record.id}`, { method: 'DELETE' });
+      onClose(true);
+    } catch (err) {
+      setError(err.message);
+    }
   }
 
   return (
@@ -158,7 +165,9 @@ function RecordForm({ record, employees, onClose }) {
           <label>Keldi<input type="time" value={checkIn} onChange={(e) => setCheckIn(e.target.value)} /></label>
           <label>Ketdi<input type="time" value={checkOut} onChange={(e) => setCheckOut(e.target.value)} /></label>
         </div>
-        <p className="hint">Masalan, xodim skan qilishni unutgan bo&apos;lsa. Kechikish va ishlagan vaqt qayta hisoblanadi.</p>
+        <p className="hint">{isNew
+          ? 'Masalan, xodim skan qilishni unutgan bo\'lsa. Bo\'sh qoldirilgan vaqt o\'zgarmaydi (terminal yozgani saqlanadi).'
+          : 'Vaqtni o\'chirsangiz, u yozuvdan olib tashlanadi. Kechikish va ishlagan vaqt qayta hisoblanadi.'}</p>
         <div className="row">
           <button>Saqlash</button>
           <button type="button" className="secondary" onClick={() => onClose(false)}>Bekor qilish</button>
