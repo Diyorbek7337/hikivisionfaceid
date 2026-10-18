@@ -53,7 +53,7 @@ store.on('devices', () => {
 const api = createApi({ store, auth, cfg, sync, backup, version: pkg.version });
 const app = createServer({ store, cfg, telegram, api });
 
-app.listen(cfg.port, () => {
+const httpServer = app.listen(cfg.port, () => {
   console.log(`🚀 Davomat tizimi ishga tushdi (v${pkg.version})`);
   console.log(`   Shu kompyuterda: http://localhost:${cfg.port}`);
   for (const ip of lanAddresses()) console.log(`   Tarmoqdagi manzil: http://${ip}:${cfg.port}`);
@@ -76,4 +76,19 @@ app.listen(cfg.port, () => {
     telegram.startPolling();
     startDailyReport({ store, telegram, tz: cfg.timezone });
   }
+});
+
+httpServer.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`
+❌ ${cfg.port}-port band — uni boshqa dastur ishlatyapti.
+   1) Ehtimol tizim allaqachon ochiq: boshqa qora oynani yoping va qayta urinib ko'ring.
+   2) Yoki boshqa port tanlang: server\\.env faylida PORT=${cfg.port === 3050 ? 3080 : 3050} deb yozing
+      (fayl yo'q bo'lsa, server\\.env.example dan nusxa oling). Keyin terminallardagi
+      HTTP Listening portini ham shu raqamga o'zgartiring.
+   Portni kim band qilganini ko'rish: cmd → netstat -ano | findstr :${cfg.port}`);
+  } else {
+    console.error('❌ Serverni ishga tushirib bo\'lmadi:', err.message);
+  }
+  process.exit(1);
 });

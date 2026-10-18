@@ -151,6 +151,7 @@ Xodim ishdan ketsa: **Tahrirlash → "Faol" belgisini olib tashlang** — u term
 | Belgi | Yechim |
 |---|---|
 | Brauzerda sahifa ochilmayapti | Qora oyna (start-windows.bat) ishlayaptimi? |
+| "3000-port band" | Tizim allaqachon ochiq bo'lishi mumkin — boshqa qora oynani yoping. Yoki `server\.env.example` ni `server\.env` nomi bilan nusxalab, `PORT=3050` deb yozing; keyin `firewall-ochish.bat` ni qayta ishga tushiring va terminallardagi HTTP Listening portini ham 3050 qiling. |
 | Terminal "✗ ulanmagan" | Serverdan `ping <terminal IP>`; login/parol to'g'rimi? |
 | Skan qilinsa ham "Bugun"da chiqmayapti | Terminalda HTTP Listening; `firewall-ochish.bat`; **Eventlar** sahifasi. |
 | Eventlarda "Xodim topilmadi" | Terminalda tizimda yo'q odam bor — Terminallar → 🔄 Qayta yuborish. |

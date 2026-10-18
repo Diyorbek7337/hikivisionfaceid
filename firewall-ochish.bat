@@ -1,15 +1,21 @@
 @echo off
 chcp 65001 >nul
-rem Windows Firewall da 3000-portni ochadi, shunda terminallar shu kompyuterga event yubora oladi.
+rem Windows Firewall da tizim portini ochadi (server\.env dagi PORT, bo'lmasa 3000),
+rem shunda terminallar va boshqa kompyuterlar shu kompyuterga ulana oladi.
 rem Bu faylni sichqonchaning o'ng tugmasi bilan bosib "Run as administrator" orqali ishga tushiring.
+cd /d "%~dp0"
 net session >nul 2>&1
 if errorlevel 1 (
   echo [XATO] Administrator sifatida ishga tushiring: o'ng tugma - "Run as administrator".
   pause
   exit /b 1
 )
-netsh advfirewall firewall delete rule name="Davomat server 3000" >nul 2>&1
-netsh advfirewall firewall add rule name="Davomat server 3000" dir=in action=allow protocol=TCP localport=3000 profile=any
+set PORT=3000
+if exist "server\.env" (
+  for /f "tokens=1,* delims==" %%a in ('findstr /b /c:"PORT=" "server\.env"') do if not "%%b"=="" set PORT=%%b
+)
+netsh advfirewall firewall delete rule name="Davomat tizimi" >nul 2>&1
+netsh advfirewall firewall add rule name="Davomat tizimi" dir=in action=allow protocol=TCP localport=%PORT% profile=any
 echo.
-echo Tayyor: 3000-port ochildi.
+echo Tayyor: %PORT%-port ochildi.
 pause
