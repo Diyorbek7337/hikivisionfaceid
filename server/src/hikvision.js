@@ -75,6 +75,21 @@ function parseText(text) {
       return null;
     }
   }
+  // Something else around the payload (e.g. form encoding): look for an embedded JSON or XML event.
+  let decoded = t;
+  if (/^[\w.-]+=/.test(t)) {
+    try { decoded = decodeURIComponent(t.replace(/\+/g, ' ')); } catch { /* keep as is */ }
+  }
+  const xmlStart = decoded.indexOf('<EventNotificationAlert');
+  if (xmlStart !== -1) return parseText(decoded.slice(xmlStart));
+  const start = decoded.indexOf('{');
+  const end = decoded.lastIndexOf('}');
+  if (start !== -1 && end > start) {
+    try {
+      const obj = JSON.parse(decoded.slice(start, end + 1));
+      if (obj && (obj.eventType || obj.AccessControllerEvent)) return obj;
+    } catch { /* not JSON */ }
+  }
   return null;
 }
 

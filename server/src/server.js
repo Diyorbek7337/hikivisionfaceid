@@ -21,7 +21,8 @@ function eventKey(deviceId, ev) {
   return `${deviceId}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function createPushHandler({ store, tz, telegram, log = console }) {
+function createPushHandler({ store, tz, telegram, log = console, samplePath = null }) {
+  const seen = new Set(); // devices that have pushed something since start
   // Events are processed one at a time so two quick scans cannot overwrite each other's attendance.
   let queue = Promise.resolve();
   const handler = (req, res) => {
@@ -35,6 +36,16 @@ function createPushHandler({ store, tz, telegram, log = console }) {
   handler.idle = queue;
   return handler;
 
+  /** Keeps the last event we could not use, for troubleshooting (data/oxirgi-noma-lum-event.txt). */
+  function saveSample(req) {
+    if (!samplePath) return;
+    try {
+      const head = `${new Date().toISOString()} ${req.method} ${req.originalUrl}\nContent-Type: ${req.get('content-type') || ''}\n\n`;
+      const body = req.body && req.body.length ? req.body.subarray(0, 20000).toString('latin1').replace(/[^\x09\x0a\x0d\x20-\x7e\u00a0-\u00ff]/g, '.') : '';
+      fs.writeFileSync(samplePath, head + body);
+    } catch { /* ignore */ }
+  }
+
   async function handle(req) {
     await store.ready;
     const remoteIp = cleanIp(req.socket.remoteAddress);
@@ -43,12 +54,25 @@ function createPushHandler({ store, tz, telegram, log = console }) {
       log.warn(`⚠️  Noma'lum terminaldan event keldi (${remoteIp}, ${req.originalUrl}) — web app'da terminalni qo'shing`);
       return;
     }
+    store.updateDevice(device.id, { lastPushAt: Date.now() }).catch(() => {});
+    if (!seen.has(device.id)) {
+      seen.add(device.id);
+      log.log(`📡 ${device.name}: terminaldan aloqa bor (${remoteIp})`);
+    }
     try {
       const raw = extractEvent(req.body, req.get('content-type'));
-      if (!raw) return;
+      if (!raw) {
+        log.warn(`⚠️  ${device.name}: tushunilmagan event (${req.get('content-type') || 'turi yo\'q'}, ${req.body ? req.body.length : 0} bayt)`);
+        saveSample(req);
+        return;
+      }
       const ev = normalizeEvent(raw);
-      if (ev.isHeartbeat || !ev.isAccess) return;
-      if (!ev.employeeNo && ev.major !== 5) return;
+      if (ev.isHeartbeat) return;
+      if (!ev.isAccess || (!ev.employeeNo && ev.major !== 5)) {
+        log.log(`ℹ️  ${device.name}: ${ev.eventType || 'event'} ${ev.major ?? ''}/${ev.minor ?? ''} (xodim raqamisiz)`);
+        if (!ev.isAccess) saveSample(req);
+        return;
+      }
 
       const key = eventKey(device.id, ev);
       if (await store.eventExists(key)) return; // terminal re-sent an event we already have
@@ -59,6 +83,7 @@ function createPushHandler({ store, tz, telegram, log = console }) {
       };
       if (!ev.employeeNo) {
         await store.saveEvent(key, { ...base, action: 'not_recognized' });
+        log.log(`ℹ️  ${device.name}: tanilmagan / boshqa event (${ev.major}/${ev.minor})`);
         return;
       }
       const result = await processScan(store, store.settings, tz, device, ev);
@@ -81,7 +106,10 @@ function createServer({ store, cfg, telegram, api, log = console }) {
 
   app.get('/health', (req, res) => res.json({ status: 'OK', service: 'hikvision-bridge', time: new Date().toISOString() }));
 
-  const push = createPushHandler({ store, tz: cfg.timezone, telegram, log });
+  const push = createPushHandler({
+    store, tz: cfg.timezone, telegram, log,
+    samplePath: cfg.dataDir ? path.join(cfg.dataDir, 'oxirgi-noma-lum-event.txt') : null,
+  });
   app.locals.push = push;
   const raw = express.raw({ type: () => true, limit: '20mb' });
   app.post('/hik/:deviceId', raw, push);
@@ -90,6 +118,8 @@ function createServer({ store, cfg, telegram, api, log = console }) {
   app.post('/ISAPI/*', raw, push);
 
   if (api) app.use('/api', api);
+  // A terminal configured with some other URL path: accept the push anyway and identify it by IP.
+  app.post(/^\/(?!api\/).*/, raw, push);
 
   // Web app (Next.js static export).
   if (fs.existsSync(cfg.webDir)) {

@@ -70,3 +70,10 @@ test('UTF-8 names survive multipart parsing', () => {
 test('garbage returns null', () => {
   assert.equal(extractEvent(Buffer.from('hello'), 'text/plain'), null);
 });
+
+test('form-encoded and wrapped payloads are understood', () => {
+  const json = JSON.stringify({ eventType: 'AccessControllerEvent', AccessControllerEvent: { employeeNoString: '5', majorEventType: 5, subEventType: 75 } });
+  const form = `event_log=${encodeURIComponent(json)}`;
+  assert.equal(normalizeEvent(extractEvent(Buffer.from(form), 'application/x-www-form-urlencoded')).employeeNo, '5');
+  assert.equal(normalizeEvent(extractEvent(Buffer.from(`junk\r\n${json}\r\n`), 'text/plain')).employeeNo, '5');
+});

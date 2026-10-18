@@ -45,6 +45,10 @@ export default function Devices() {
             {d.lastCheckAt && <span className="muted"> · tekshirildi: {localDateTime(d.lastCheckAt)}</span>}
           </p>
           {d.online === false && <p className="bad">✗ {d.lastError}</p>}
+          {d.online && (d.lastPushAt
+            ? <p className="ok">📡 Terminaldan oxirgi event: {localDateTime(d.lastPushAt)}</p>
+            : <p className="warn">⚠️ Bu terminaldan hali birorta ham event kelmagan. Yuz ko&apos;rsatilgandan keyin ham shunday bo&apos;lsa —
+              quyidagi HTTP Listening sozlamasini va Windows Firewall&apos;ni (firewall-ochish.bat) tekshiring.</p>)}
           {d.clockFixedAt && <p className="muted">🕐 Terminal soati avtomatik to&apos;g&apos;rilangan: {localDateTime(d.clockFixedAt)}</p>}
           {d.resyncRequestedAt && d.resyncDoneFor !== d.resyncRequestedAt && <p className="warn">⏳ Qayta yuborish navbatda…</p>}
           <details>
