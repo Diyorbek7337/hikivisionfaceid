@@ -36,7 +36,7 @@ if not exist "server\data\.ruxsat" (
 
 echo.
 echo Davomat tizimi ishga tushmoqda. Bu oynani YOPMANG - yopilsa tizim to'xtaydi.
-echo Port band bo'lsa, keyingi bo'sh port avtomatik tanlanadi. Brauzer o'zi ochiladi.
+echo Brauzer o'zi ochiladi. Tizim allaqachon ochiq bo'lsa, ikkinchi nusxa ishga tushmaydi.
 echo.
 cd server
 set OPEN_BROWSER=1

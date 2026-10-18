@@ -34,7 +34,7 @@ const { createBackup } = require('./backup');
 const { createTelegram } = require('./telegram');
 const { startDailyReport } = require('./report');
 const { lanAddresses } = require('./net');
-const { preferredPort, rememberPort, listenWithFallback } = require('./listen');
+const { startListening } = require('./listen');
 const pkg = require('../package.json');
 
 const cfg = loadConfig();
@@ -71,19 +71,29 @@ const processor = createEventProcessor({ store, tz: cfg.timezone, telegram });
 const poller = new EventPoller({ store, clientFor, processor, tz: cfg.timezone });
 const app = createServer({ store, cfg, telegram, api, processor });
 
-const { port: wantedPort, fixed } = preferredPort(cfg);
-
-listenWithFallback(app, wantedPort).then(({ port }) => {
+startListening(app, cfg).then((started) => {
+  if (started.alreadyRunning) {
+    console.log(`
+ℹ️  Davomat tizimi allaqachon ishlayapti: http://localhost:${started.alreadyRunning}
+   (boshqa qora oyna ochiq). Ikkinchi nusxa ishga tushirilmaydi — brauzer ochiladi.
+   Bu oyna 10 soniyadan keyin yopiladi.`);
+    if (process.env.OPEN_BROWSER === '1') openBrowser(`http://localhost:${started.alreadyRunning}`);
+    setTimeout(() => process.exit(0), 10000);
+    return;
+  }
+  const { port } = started;
   cfg.port = port;
-  rememberPort(cfg, port);
   console.log(`🚀 Davomat tizimi ishga tushdi (v${pkg.version})`);
-  if (port !== wantedPort) {
+  if (started.mode === 'temporary') {
     console.warn(`
-⚠️  ${wantedPort}-port band edi, shuning uchun ${port}-port ishlatilmoqda (keyingi safar ham shu port bo'ladi).
-   Terminallar oldin ${wantedPort}-portga sozlangan bo'lsa: har bir terminalning HTTP Listening
-   sahifasida Port ni ${port} ga o'zgartiring (Terminallar sahifasida ham ko'rsatilgan).
-   Firewall: firewall-ochish.bat ni administrator sifatida qayta ishga tushiring.
+⚠️⚠️  DIQQAT: tizim porti ${started.home}, lekin uni BOSHQA dastur band qilgan.
+   Hozircha vaqtincha ${port}-portda ishlayapti — terminallar ${started.home}-portga yuborgani uchun
+   ularning HTTP Listening eventlari yetib kelmaydi (terminal xotirasidan o'qish baribir ishlaydi).
+   ${started.home}-portni band qilgan dasturni yoping va tizimni qayta ishga tushiring.
+   Kim band qilganini ko'rish: cmd → netstat -ano | findstr :${started.home}
 `);
+  } else if (started.mode === 'first') {
+    console.log(`   Tizim porti: ${port} (doimiy — terminallarda shu port yoziladi)`);
   }
   console.log(`   Shu kompyuterda: http://localhost:${port}`);
   for (const ip of lanAddresses()) console.log(`   Tarmoqdagi manzil: http://${ip}:${port}`);
@@ -111,7 +121,7 @@ listenWithFallback(app, wantedPort).then(({ port }) => {
   }
 }).catch((err) => {
   if (err.code === 'EADDRINUSE') {
-    console.error(`❌ ${wantedPort}–${wantedPort + 29} portlarning hammasi band${fixed ? ` (server\\.env dagi PORT=${wantedPort} ni o'zgartiring)` : ''}.`);
+    console.error('❌ Bo\'sh port topilmadi. server\\.env faylida PORT= ni boshqa raqamga o\'zgartiring.');
   } else {
     console.error('❌ Serverni ishga tushirib bo\'lmadi:', err.message);
   }

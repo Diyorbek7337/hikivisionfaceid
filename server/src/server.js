@@ -104,7 +104,7 @@ function createServer({ store, cfg, telegram, api, processor, log = console }) {
   const app = express();
   app.disable('x-powered-by');
 
-  app.get('/health', (req, res) => res.json({ status: 'OK', service: 'hikvision-bridge', time: new Date().toISOString() }));
+  app.get('/health', (req, res) => res.json({ status: 'OK', service: 'davomat', time: new Date().toISOString() }));
 
   const proc = processor || createEventProcessor({ store, tz: cfg.timezone, telegram, log });
   const push = createPushHandler({

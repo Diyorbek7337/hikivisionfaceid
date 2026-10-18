@@ -40,9 +40,9 @@ Talablar: Windows 10/11, 4 GB RAM, doim yoqiq turadi, terminallar bilan **bitta 
    - Birinchi marta paketlar o'rnatiladi va web sahifalar yig'iladi (internet kerak, 2–5 daqiqa).
    - Brauzer ochiladi → **Birinchi sozlash**: tashkilot nomi, administrator login va paroli.
    - **Qora oynani yopmang** — u tizimning o'zi.
-   - Port: odatda `3000`. Agar u band bo'lsa, tizim **keyingi bo'sh portni o'zi tanlaydi** (3001, 3002…) va uni eslab
-     qoladi — keyingi safar ham o'sha port ishlatiladi. Qaysi port ekani qora oynada va Terminallar sahifasida ko'rinadi.
-     Aniq port kerak bo'lsa: `server\.env.example` ni `server\.env` nomi bilan nusxalab, `PORT=` ni yozing.
+   - Port: birinchi ishga tushganda `3000` (band bo'lsa keyingi bo'sh port) tanlanadi va **doimiy** bo'lib qoladi —
+     terminallar shu portga sozlanadi. Tizim allaqachon ochiq bo'lsa, ikkinchi oyna yangi nusxa ochmaydi.
+     Portni aniq belgilash uchun: `server\.env.example` ni `server\.env` nomi bilan nusxalab, `PORT=3001` kabi yozing.
 
 Muhim sozlamalar:
 
