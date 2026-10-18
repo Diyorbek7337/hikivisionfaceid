@@ -89,3 +89,36 @@ test('personal schedule: only the employee\'s own days count, shared schedules i
   store.updateEmployee(emp.id, { ...e, personalSchedule: null });
   assert.equal(store.getEmployee(emp.id).personalSchedule, null);
 });
+
+test('flexible schedule: no lateness, no absence; presence and hours still counted', async () => {
+  const { store, emp } = setup();
+  // shared flexible schedule
+  const sid = store.saveSchedule({ name: 'O\'qituvchilar', type: 'flexible', days: {} });
+  store.updateEmployee(emp.id, { ...emp, scheduleId: sid });
+  let e = store.getEmployee(emp.id);
+  assert.equal(store.isFlexible(e), true);
+  assert.equal(store.getWorkHoursSync(e, '2026-10-15'), null);
+  const dev = { id: 'a', name: 'A', direction: 'auto' };
+  await scan(store, e, dev, at('2026-10-15', '11:40'));
+  await scan(store, e, dev, at('2026-10-15', '13:10'));
+  const r = await store.getAttendance(e.id, '2026-10-15');
+  assert.equal(r.lateMinutes, 0);
+  assert.equal(r.earlyMinutes, 0);
+  assert.equal(r.workedMinutes, 90);
+  assert.equal(daySummary(store, '2026-10-15', tz, at('2026-10-15', '18:00'))[0].status, 'present');
+  assert.equal(daySummary(store, '2026-10-16', tz, at('2026-10-16', '18:00'))[0].status, 'free');
+  const p = periodSummary(store, '2026-10-12', '2026-10-17', tz, at('2026-10-18', '09:00')).summary[0];
+  assert.equal(p.flexible, true);
+  assert.equal(p.absentDays, 0);
+  assert.equal(p.presentDays, 1);
+  assert.equal(p.workedMinutes, 90);
+
+  // personal flexible schedule works the same way
+  store.updateEmployee(emp.id, { ...e, scheduleId: null, personalSchedule: { type: 'flexible', days: {} } });
+  e = store.getEmployee(emp.id);
+  assert.equal(store.isFlexible(e), true);
+  assert.equal(daySummary(store, '2026-10-16', tz, at('2026-10-16', '18:00'))[0].status, 'free');
+  // the daily Telegram report does not list them as expected at work
+  const { buildDailyReport } = require('../src/report');
+  assert.equal(buildDailyReport(store, '2026-10-16', tz), null);
+});

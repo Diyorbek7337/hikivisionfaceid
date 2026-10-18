@@ -50,9 +50,10 @@ export default function Employees() {
                 <td><code>{e.employeeNo}</code></td>
                 <td>{e.name} {!e.active && <span className="pill muted">nofaol</span>}</td>
                 <td className="muted">{e.position}</td>
-                <td>{e.personalSchedule
-                  ? <span title={scheduleSummary(e.personalSchedule)}>Shaxsiy: <span className="muted">{scheduleSummary(e.personalSchedule)}</span></span>
-                  : sched.get(e.scheduleId) || defaultSched}</td>
+                <td>{e.personalSchedule && e.personalSchedule.type === 'flexible' && <span className="pill muted">Erkin</span>}
+                  {e.personalSchedule && e.personalSchedule.type !== 'flexible'
+                    && <span title={scheduleSummary(e.personalSchedule)}>Shaxsiy: <span className="muted">{scheduleSummary(e.personalSchedule)}</span></span>}
+                  {!e.personalSchedule && (sched.get(e.scheduleId) || defaultSched)}</td>
                 <td>{e.hourlyRate ? money(e.hourlyRate) : ''}</td>
                 {devs.map((d) => <td key={d.id}><SyncBadge employee={e} device={d} /></td>)}
                 <td><Link href={`/employees/edit/?id=${e.id}`}>Tahrirlash</Link></td>

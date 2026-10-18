@@ -32,3 +32,19 @@ export default function DaysEditor({ days, onChange }) {
     </>
   );
 }
+
+export function FlexibleHint() {
+  return (
+    <p className="hint">Erkin jadval: xodim kerak bo&apos;lgan kunlari keladi. Kechikish, erta ketish va &quot;kelmagan&quot; hisoblanmaydi —
+      faqat qaysi kunlari kelgani, qancha vaqt bo&apos;lgani va (stavka bo&apos;lsa) summasi hisoblanadi.</p>
+  );
+}
+
+export function TypeChoice({ type, onChange }) {
+  return (
+    <div className="row" style={{ gap: 16, marginBottom: 8 }}>
+      <label className="inline"><input type="radio" checked={type !== 'flexible'} onChange={() => onChange('fixed')} /> Belgilangan kunlar va soatlar</label>
+      <label className="inline"><input type="radio" checked={type === 'flexible'} onChange={() => onChange('flexible')} /> Erkin</label>
+    </div>
+  );
+}

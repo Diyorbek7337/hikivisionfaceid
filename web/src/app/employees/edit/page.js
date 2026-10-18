@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { api, useApi, faceUrl } from '@/lib/api';
 import FacePicker from '@/components/FacePicker';
 import { scheduleSummary } from '@/components/ui';
-import DaysEditor, { blankDays } from '@/components/DaysEditor';
+import DaysEditor, { blankDays, FlexibleHint } from '@/components/DaysEditor';
 
 export default function Page() {
   return <Suspense fallback={<p className="muted">Yuklanmoqda…</p>}><EmployeeForm /></Suspense>;
@@ -34,13 +34,19 @@ function EmployeeForm() {
     }).catch((e) => { if (e.status === 404 || e.status === 400) setNotFound(true); else setError(e.message); setLoading(false); });
   }, [id]);
 
-  const personal = !!form.personalSchedule;
-  function setPersonal(on) {
+  // shared = a schedule from "Jadvallar"; personal = own days and hours; flexible = comes when needed
+  const own = form.personalSchedule;
+  const mode = !own ? 'shared' : own.type === 'flexible' ? 'flexible' : 'personal';
+  function setMode(m) {
     setForm((f) => {
-      if (!on) return { ...f, personalSchedule: null };
-      // start from the shared schedule the employee had, so only the differences need editing
-      const base = (schedules || []).find((s) => String(s.id) === String(f.scheduleId)) || (schedules || [])[0];
-      return { ...f, personalSchedule: { days: base ? JSON.parse(JSON.stringify(base.days)) : blankDays() } };
+      if (m === 'shared') return { ...f, personalSchedule: null };
+      let days = f.personalSchedule && f.personalSchedule.days;
+      if (!days || !Object.values(days).some(Boolean)) {
+        // start from the shared schedule the employee had, so only the differences need editing
+        const base = (schedules || []).find((s) => String(s.id) === String(f.scheduleId)) || (schedules || [])[0];
+        days = base && base.type !== 'flexible' ? JSON.parse(JSON.stringify(base.days)) : blankDays();
+      }
+      return { ...f, personalSchedule: { type: m === 'flexible' ? 'flexible' : 'fixed', days } };
     });
   }
 
@@ -110,21 +116,23 @@ function EmployeeForm() {
         <div className="card">
           <h2>Ish jadvali</h2>
           <div className="row" style={{ gap: 16, marginBottom: 8 }}>
-            <label className="inline"><input type="radio" checked={!personal} onChange={() => setPersonal(false)} /> Umumiy jadval</label>
-            <label className="inline"><input type="radio" checked={personal} onChange={() => setPersonal(true)} /> Shaxsiy jadval</label>
+            <label className="inline"><input type="radio" checked={mode === 'shared'} onChange={() => setMode('shared')} /> Umumiy jadval</label>
+            <label className="inline"><input type="radio" checked={mode === 'personal'} onChange={() => setMode('personal')} /> Shaxsiy kunlar va soatlar</label>
+            <label className="inline"><input type="radio" checked={mode === 'flexible'} onChange={() => setMode('flexible')} /> Erkin</label>
           </div>
-          {!personal && (
+          {mode === 'shared' && (
             <label>Jadval<select value={form.scheduleId} onChange={set('scheduleId')}>
               {(schedules || []).map((s) => <option key={s.id} value={s.id}>{s.name} — {scheduleSummary(s)}</option>)}
             </select></label>
           )}
-          {personal && (
+          {mode === 'personal' && (
             <>
               <p className="hint">Faqat shu xodim uchun: qaysi kunlari va soat nechada kelishi kerak. Belgilanmagan kunlar — dam olish
                 (kelmasa &quot;kelmagan&quot; hisoblanmaydi).</p>
-              <DaysEditor days={form.personalSchedule.days} onChange={(days) => setForm((f) => ({ ...f, personalSchedule: { ...f.personalSchedule, days } }))} />
+              <DaysEditor days={own.days} onChange={(days) => setForm((f) => ({ ...f, personalSchedule: { ...f.personalSchedule, days } }))} />
             </>
           )}
+          {mode === 'flexible' && <FlexibleHint />}
         </div>
         <div className="row">
           <button disabled={saving}>{saving ? 'Saqlanmoqda…' : 'Saqlash'}</button>

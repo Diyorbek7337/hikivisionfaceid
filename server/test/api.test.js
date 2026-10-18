@@ -209,6 +209,12 @@ test('security: sessions are revoked on logout/password change; bad cookies; dev
   assert.equal(own.status, 200);
   assert.deepEqual(own.body.personalSchedule.days['2'], { start: '09:00', end: '11:30' });
   assert.equal(own.body.personalSchedule.days['1'], null);
+  // flexible: days are optional and never rejected
+  const flex = await call('POST', '/api/employees', { name: 'F', personalSchedule: { type: 'flexible', days: { 1: { start: '12:00', end: '09:00' } } } });
+  assert.equal(flex.status, 200);
+  assert.equal(flex.body.personalSchedule.type, 'flexible');
+  const fs = await call('POST', '/api/schedules', { name: 'Erkin', type: 'flexible' });
+  assert.equal((await call('GET', '/api/schedules')).body.find((x) => x.id === fs.body.id).type, 'flexible');
   const scheds = (await call('GET', '/api/schedules')).body;
   assert.equal(scheds[0].employees, 1, 'only X uses the default schedule');
 });

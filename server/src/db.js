@@ -141,7 +141,10 @@ function migrate(db) {
   const cols = db.prepare('PRAGMA table_info(users)').all().map((c) => c.name);
   if (!cols.includes('session_version')) db.exec('ALTER TABLE users ADD COLUMN session_version INTEGER NOT NULL DEFAULT 0');
   const empCols = db.prepare('PRAGMA table_info(employees)').all().map((c) => c.name);
-  // JSON {"days": {...}} when the employee has their own schedule; NULL = uses schedule_id
+  // JSON {"type": "fixed"|"flexible", "days": {...}} when the employee has their own schedule; NULL = uses schedule_id
+  const schedCols = db.prepare('PRAGMA table_info(schedules)').all().map((c) => c.name);
+  // 'fixed' = work hours per weekday; 'flexible' = comes when needed (no lateness, no absence)
+  if (!schedCols.includes('type')) db.exec("ALTER TABLE schedules ADD COLUMN type TEXT NOT NULL DEFAULT 'fixed'");
   if (!empCols.includes('personal_schedule')) db.exec('ALTER TABLE employees ADD COLUMN personal_schedule TEXT');
 }
 

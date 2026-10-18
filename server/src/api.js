@@ -47,7 +47,7 @@ function cleanEmployee(b) {
     phone: String(b.phone || '').trim().slice(0, 30),
     telegramChatId: String(b.telegramChatId || '').trim().slice(0, 20),
     scheduleId: b.scheduleId ? Number(b.scheduleId) : null,
-    personalSchedule: b.personalSchedule ? { days: cleanDays(b.personalSchedule.days) } : null,
+    personalSchedule: b.personalSchedule ? cleanScheduleBody(b.personalSchedule) : null,
     hourlyRate: clampInt(b.hourlyRate, 0, 100000000),
     active: b.active !== false,
   };
@@ -60,17 +60,24 @@ function cleanEmployee(b) {
 function cleanSchedule(b) {
   const name = String(b.name || '').trim().slice(0, 60);
   if (!name) throw bad('Jadval nomini kiriting');
-  return { name, days: cleanDays(b.days) };
+  return { name, ...cleanScheduleBody(b) };
+}
+
+/** Type + week. A flexible schedule keeps its days only so that switching back restores them. */
+function cleanScheduleBody(b) {
+  const type = b.type === 'flexible' ? 'flexible' : 'fixed';
+  return { type, days: cleanDays(b.days, type === 'flexible') };
 }
 
 /** Week of work hours: {"0": null | {start, end}, ...}, 0 = Sunday. */
-function cleanDays(src) {
+function cleanDays(src, lenient = false) {
   const days = {};
   for (let i = 0; i < 7; i += 1) {
     const d = src && src[String(i)];
     if (d && d.start && d.end) {
       const start = normHHMM(d.start);
       const end = normHHMM(d.end);
+      if (lenient && (!start || !end || end <= start)) { days[String(i)] = null; continue; }
       if (!start || !end) throw bad('Vaqt noto\'g\'ri');
       if (end <= start) {
         throw bad('Ish tugash vaqti boshlanishidan keyin bo\'lishi kerak (tungi smena — yarim tundan o\'tadigan jadval hozircha qo\'llanmaydi)');

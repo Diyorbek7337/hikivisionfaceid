@@ -117,7 +117,8 @@ async function processScan(store, settings, tz, device, ev) {
 
 function checkinMessage(employee, record, tz) {
   let text = `✅ <b>Kelganingiz qayd etildi!</b>\n\n👤 ${esc(employee.name)}\n🕐 Vaqt: ${localTime(record.checkIn, tz)}\n📷 Yuz orqali tasdiqlangan\n\n`;
-  text += record.lateMinutes > 0 ? `⚠️ Kechikish: ${formatDuration(record.lateMinutes)}` : '✅ O\'z vaqtida!';
+  if (record.lateMinutes > 0) text += `⚠️ Kechikish: ${formatDuration(record.lateMinutes)}`;
+  else if (record.workStart) text += '✅ O\'z vaqtida!';
   return text;
 }
 

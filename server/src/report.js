@@ -9,7 +9,8 @@ function esc(s) {
 
 function buildDailyReport(store, date, tz) {
   const rows = daySummary(store, date, tz);
-  const working = rows.filter((r) => r.status !== 'off');
+  // flexible-schedule people count only when they came
+  const working = rows.filter((r) => r.status !== 'off' && r.status !== 'free');
   const pending = rows.filter((r) => r.status === 'pending');
   if (!working.length) return null; // day off for everybody
   const late = rows.filter((r) => r.status === 'late');

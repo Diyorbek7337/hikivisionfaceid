@@ -91,7 +91,7 @@ function mapAttendance(r) {
 }
 
 function mapSchedule(r) {
-  return { id: r.id, name: r.name, days: json(r.days, {}) };
+  return { id: r.id, name: r.name, type: r.type === 'flexible' ? 'flexible' : 'fixed', days: json(r.days, {}) };
 }
 
 class LocalStore extends EventEmitter {
@@ -143,12 +143,13 @@ class LocalStore extends EventEmitter {
     return r ? mapSchedule(r) : null;
   }
 
-  saveSchedule({ id, name, days }) {
+  saveSchedule({ id, name, type, days }) {
+    const t = type === 'flexible' ? 'flexible' : 'fixed';
     if (id) {
-      this.q('UPDATE schedules SET name = ?, days = ? WHERE id = ?').run(name, JSON.stringify(days), id);
+      this.q('UPDATE schedules SET name = ?, type = ?, days = ? WHERE id = ?').run(name, t, JSON.stringify(days), id);
       return id;
     }
-    return Number(this.q('INSERT INTO schedules (name, days) VALUES (?, ?)').run(name, JSON.stringify(days)).lastInsertRowid);
+    return Number(this.q('INSERT INTO schedules (name, type, days) VALUES (?, ?, ?)').run(name, t, JSON.stringify(days)).lastInsertRowid);
   }
 
   deleteSchedule(id) {
@@ -167,16 +168,23 @@ class LocalStore extends EventEmitter {
 
   /** The schedule an employee follows: their personal one, the chosen shared one, or the first (default) one. */
   scheduleFor(employee) {
-    if (employee.personalSchedule && employee.personalSchedule.days) return { id: null, name: 'Shaxsiy jadval', personal: true, ...employee.personalSchedule };
+    const own = employee.personalSchedule;
+    if (own) return { id: null, name: 'Shaxsiy jadval', personal: true, type: own.type === 'flexible' ? 'flexible' : 'fixed', days: own.days || {} };
     let sched = employee.scheduleId ? this.getSchedule(employee.scheduleId) : null;
     if (!sched) sched = this.listSchedules()[0];
     return sched || null;
   }
 
-  /** Work hours of an employee on a date: { start, end } or null for a day off. */
+  /** Flexible schedule: the employee comes when needed — no lateness, no absence, only presence and hours. */
+  isFlexible(employee) {
+    const sched = this.scheduleFor(employee);
+    return !!sched && sched.type === 'flexible';
+  }
+
+  /** Work hours of an employee on a date: { start, end } or null for a day off (and always null on a flexible schedule). */
   getWorkHoursSync(employee, date) {
     const sched = this.scheduleFor(employee);
-    if (!sched) return null;
+    if (!sched || sched.type === 'flexible') return null;
     const d = sched.days[String(weekdayOf(date))];
     return d && d.start && d.end ? { start: d.start, end: d.end } : null;
   }

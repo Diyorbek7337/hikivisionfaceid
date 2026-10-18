@@ -10,6 +10,7 @@ const STATUS = {
   absent: <span className="pill bad">Kelmagan</span>,
   off: <span className="pill muted">Dam olish</span>,
   pending: <span className="pill muted" title="Ish vaqti hali boshlanmagan">Kutilmoqda</span>,
+  free: <span className="pill muted" title="Erkin jadval: kelmasa ham kelmagan hisoblanmaydi">Erkin</span>,
 };
 
 export default function Dashboard() {
@@ -19,7 +20,7 @@ export default function Dashboard() {
   if (!data) return <><ErrorBox error={error} /><p className="muted">Yuklanmoqda…</p></>;
 
   const rows = data.rows;
-  const working = rows.filter((r) => r.status !== 'off');
+  const working = rows.filter((r) => r.status !== 'off' && r.status !== 'free');
   const count = (s) => rows.filter((r) => r.status === s).length;
   const came = count('present') + count('late');
   const inside = rows.filter((r) => r.attendance && r.attendance.checkIn && !r.attendance.checkOut).length;
@@ -51,11 +52,11 @@ export default function Dashboard() {
         <table>
           <thead><tr><th>Xodim</th><th className="hide-sm">Lavozim</th><th className="hide-sm">Ish vaqti</th><th>Keldi</th><th>Ketdi</th><th>Holat</th></tr></thead>
           <tbody>
-            {shown.map(({ employee, hours, attendance, status }) => (
+            {shown.map(({ employee, hours, flexible, attendance, status }) => (
               <tr key={employee.id}>
                 <td>{employee.name}</td>
                 <td className="muted hide-sm">{employee.position}</td>
-                <td className="hide-sm nw">{hours ? `${hours.start}–${hours.end}` : <span className="muted">—</span>}</td>
+                <td className="hide-sm nw">{hours ? `${hours.start}–${hours.end}` : <span className="muted">{flexible ? 'erkin' : '—'}</span>}</td>
                 <td className="nw">{attendance ? localTime(attendance.checkIn) : ''}</td>
                 <td className="nw">{attendance ? localTime(attendance.checkOut) : ''}</td>
                 <td className="nw">{status === 'late'

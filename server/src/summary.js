@@ -33,7 +33,7 @@ function expectedAtWork(emp, date, hours, ctx) {
   return 'yes';
 }
 
-/** Status of every active employee on one date: present | late | absent | pending | off */
+/** Status of every active employee on one date: present | late | absent | pending | off | free (flexible schedule, did not come) */
 function daySummary(store, date, tz, now = new Date()) {
   const ctx = { tz, now, today: localDate(now, tz), grace: store.settings.lateGraceMinutes };
   const rows = [];
@@ -41,15 +41,17 @@ function daySummary(store, date, tz, now = new Date()) {
   for (const emp of store.employees.values()) {
     if (!emp.active || emp.deleted) continue;
     const hours = store.getWorkHoursSync(emp, date);
+    const flexible = store.isFlexible(emp);
     const att = attendance.get(emp.id) || null;
     let status;
     if (att && att.checkIn) status = att.lateMinutes > 0 ? 'late' : 'present';
     else if (att && att.checkOut) status = 'present';
+    else if (flexible) status = 'free';
     else {
       const exp = expectedAtWork(emp, date, hours, ctx);
       status = exp === 'yes' ? 'absent' : exp === 'pending' ? 'pending' : 'off';
     }
-    rows.push({ employee: publicEmployee(emp), hours, attendance: att, status });
+    rows.push({ employee: publicEmployee(emp), hours, flexible, attendance: att, status });
   }
   rows.sort((a, b) => a.employee.name.localeCompare(b.employee.name));
   return rows;
@@ -72,6 +74,7 @@ function periodSummary(store, from, to, tz, now = new Date()) {
     if (!emp.active && !recs.length) continue;
     const s = {
       employeeId: emp.id, employeeNo: emp.employeeNo, name: emp.name, position: emp.position,
+      flexible: store.isFlexible(emp),
       workDays: 0, presentDays: 0, absentDays: 0, lateCount: 0, lateMinutes: 0, earlyCount: 0, workedMinutes: 0, pay: 0,
     };
     const recByDate = new Map(recs.map((r) => [r.date, r]));

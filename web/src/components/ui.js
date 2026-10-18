@@ -32,6 +32,7 @@ export const WEEKDAY_SHORT = { 1: 'Du', 2: 'Se', 3: 'Ch', 4: 'Pa', 5: 'Ju', 6: '
 /** "Du–Sh 08:00–17:00" style summary of a schedule */
 export function scheduleSummary(s) {
   if (!s) return '';
+  if (s.type === 'flexible') return 'erkin — kechikish va kelmaganlik hisoblanmaydi';
   const groups = new Map();
   for (const [k] of WEEKDAYS) {
     const d = s.days[k];

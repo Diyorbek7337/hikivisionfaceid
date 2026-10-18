@@ -35,7 +35,7 @@ export default function Reports() {
     out.push([]);
     out.push(['Xodim', 'ID', 'Lavozim', 'Ish kunlari', 'Kelgan', 'Kelmagan', 'Kechikishlar', 'Jami kechikish (daq)', 'Erta ketishlar', 'Ishlagan (soat)', "Summa (so'm)"]);
     for (const s of summary) {
-      out.push([s.name, s.employeeNo, s.position, s.workDays, s.presentDays, s.absentDays, s.lateCount, s.lateMinutes, s.earlyCount,
+      out.push([s.name, s.employeeNo, s.position, s.flexible ? 'erkin' : s.workDays, s.presentDays, s.flexible ? '' : s.absentDays, s.lateCount, s.lateMinutes, s.earlyCount,
         (s.workedMinutes / 60).toFixed(2).replace('.', ','), Math.round(s.pay)]);
     }
     out.push([]);
@@ -81,8 +81,8 @@ export default function Reports() {
           <tbody>
             {summary.map((s) => (
               <tr key={s.employeeId}>
-                <td>{s.name}</td><td>{s.workDays}</td><td>{s.presentDays}</td>
-                <td className={s.absentDays ? 'bad' : ''}>{s.absentDays}</td>
+                <td>{s.name}</td><td>{s.flexible ? <span className="muted" title="Erkin jadval">erkin</span> : s.workDays}</td><td>{s.presentDays}</td>
+                <td className={s.absentDays ? 'bad' : ''}>{s.flexible && !s.absentDays ? <span className="muted">—</span> : s.absentDays}</td>
                 <td className={s.lateCount ? 'warn' : ''}>{s.lateCount}</td><td>{formatDuration(s.lateMinutes)}</td>
                 <td>{s.earlyCount}</td><td>{formatDuration(s.workedMinutes)}</td>{showPay && <td>{money(s.pay)}</td>}
               </tr>
