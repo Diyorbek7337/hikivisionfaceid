@@ -3,7 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const express = require('express');
 const { extractEvent, normalizeEvent } = require('./hikvision');
-const { processScan, notifyScan } = require('./attendance');
+const { createEventProcessor } = require('./events');
 
 function cleanIp(ip) {
   return String(ip || '').replace(/^::ffff:/, '');
@@ -16,37 +16,18 @@ function findDevice(store, deviceId, remoteIp) {
   return null;
 }
 
-function eventKey(deviceId, ev) {
-  if (ev.serialNo != null && ev.time) return `${deviceId}_${ev.serialNo}_${ev.time.getTime()}`;
-  return `${deviceId}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-}
-
-function createPushHandler({ store, tz, telegram, log = console, samplePath = null }) {
+function createPushHandler({ store, processor, log = console, samplePath = null }) {
   const seen = new Set(); // devices that have pushed something since start
-  // Events are processed one at a time so two quick scans cannot overwrite each other's attendance.
-  let queue = Promise.resolve();
   const handler = (req, res) => {
+    const p = run(req, res);
+    handler.idle = Promise.all([handler.idle, p]).then(() => {});
+    return p;
+  };
+  handler.idle = Promise.resolve();
+
+  async function run(req, res) {
     // Answer right away: the terminal waits for the response before sending the next event.
     res.send('OK');
-    const job = queue.then(() => handle(req));
-    queue = job.catch(() => {});
-    handler.idle = queue;
-    return job;
-  };
-  handler.idle = queue;
-  return handler;
-
-  /** Keeps the last event we could not use, for troubleshooting (data/oxirgi-noma-lum-event.txt). */
-  function saveSample(req) {
-    if (!samplePath) return;
-    try {
-      const head = `${new Date().toISOString()} ${req.method} ${req.originalUrl}\nContent-Type: ${req.get('content-type') || ''}\n\n`;
-      const body = req.body && req.body.length ? req.body.subarray(0, 20000).toString('latin1').replace(/[^\x09\x0a\x0d\x20-\x7e\u00a0-\u00ff]/g, '.') : '';
-      fs.writeFileSync(samplePath, head + body);
-    } catch { /* ignore */ }
-  }
-
-  async function handle(req) {
     await store.ready;
     const remoteIp = cleanIp(req.socket.remoteAddress);
     const device = findDevice(store, req.params.deviceId, remoteIp);
@@ -59,63 +40,52 @@ function createPushHandler({ store, tz, telegram, log = console, samplePath = nu
       seen.add(device.id);
       log.log(`📡 ${device.name}: terminaldan aloqa bor (${remoteIp})`);
     }
+    let raw;
     try {
-      const raw = extractEvent(req.body, req.get('content-type'));
-      if (!raw) {
-        log.warn(`⚠️  ${device.name}: tushunilmagan event (${req.get('content-type') || 'turi yo\'q'}, ${req.body ? req.body.length : 0} bayt)`);
-        saveSample(req);
-        return;
-      }
-      const ev = normalizeEvent(raw);
-      if (ev.isHeartbeat) return;
-      // Hikvision major types: 1 alarm, 2 exception, 3 operation (e.g. our own status checks: 3/1028), 5 access event.
-      // Only 5 is about people passing; the rest is the terminal's own log and is ignored quietly.
-      if (ev.isAccess && ev.major != null && ev.major !== 5) return;
-      if (!ev.isAccess) {
-        log.log(`ℹ️  ${device.name}: ${ev.eventType || 'noma\'lum event'} (o'tkazib yuborildi)`);
-        saveSample(req);
-        return;
-      }
-
-      const key = eventKey(device.id, ev);
-      if (await store.eventExists(key)) return; // terminal re-sent an event we already have
-
-      const base = {
-        deviceId: device.id, deviceName: device.name || '', time: ev.time || new Date(),
-        employeeNo: ev.employeeNo || null, personName: ev.name || null, major: ev.major, minor: ev.minor,
-      };
-      if (!ev.employeeNo) {
-        // Door opened/closed etc. come with every scan: ignore. Keep only "face not recognised" (5/76).
-        if (ev.minor !== 76) return;
-        await store.saveEvent(key, { ...base, action: 'not_recognized' });
-        log.log(`ℹ️  ${device.name}: yuz tanilmadi`);
-        return;
-      }
-      const result = await processScan(store, store.settings, tz, device, ev);
-      await store.saveEvent(key, { ...base, action: result.action, employeeId: result.employee ? result.employee.id : null });
-      if (result.action === 'checkin' || result.action === 'checkout') {
-        log.log(`✅ ${result.employee.name}: ${result.action === 'checkin' ? 'keldi' : 'ketdi'} (${device.name})`);
-      } else {
-        log.log(`ℹ️  ${ev.employeeNo} ${ev.name || ''}: ${result.action} (${device.name})`);
-      }
-      notifyScan(telegram, tz, result);
-    } catch (err) {
-      log.error('❌ Event ishlovida xato:', err);
+      raw = extractEvent(req.body, req.get('content-type'));
+    } catch {
+      raw = null;
     }
+    if (!raw) {
+      log.warn(`⚠️  ${device.name}: tushunilmagan event (${req.get('content-type') || 'turi yo\'q'}, ${req.body ? req.body.length : 0} bayt)`);
+      saveSample(req);
+      return;
+    }
+    const ev = normalizeEvent(raw);
+    if (ev.isHeartbeat) return;
+    if (!ev.isAccess) {
+      log.log(`ℹ️  ${device.name}: ${ev.eventType || 'noma\'lum event'} (o'tkazib yuborildi)`);
+      saveSample(req);
+      return;
+    }
+    await processor.process(device, ev);
+  }
+  return handler;
+
+  /** Keeps the last event we could not use, for troubleshooting (data/oxirgi-noma-lum-event.txt). */
+  function saveSample(req) {
+    if (!samplePath) return;
+    try {
+      const head = `${new Date().toISOString()} ${req.method} ${req.originalUrl}\nContent-Type: ${req.get('content-type') || ''}\n\n`;
+      const body = req.body && req.body.length ? req.body.subarray(0, 20000).toString('latin1').replace(/[^\x09\x0a\x0d\x20-\x7e\u00a0-\u00ff]/g, '.') : '';
+      fs.writeFileSync(samplePath, head + body);
+    } catch { /* ignore */ }
   }
 }
 
-function createServer({ store, cfg, telegram, api, log = console }) {
+function createServer({ store, cfg, telegram, api, processor, log = console }) {
   const app = express();
   app.disable('x-powered-by');
 
   app.get('/health', (req, res) => res.json({ status: 'OK', service: 'hikvision-bridge', time: new Date().toISOString() }));
 
+  const proc = processor || createEventProcessor({ store, tz: cfg.timezone, telegram, log });
   const push = createPushHandler({
-    store, tz: cfg.timezone, telegram, log,
+    store, processor: proc, log,
     samplePath: cfg.dataDir ? path.join(cfg.dataDir, 'oxirgi-noma-lum-event.txt') : null,
   });
   app.locals.push = push;
+  app.locals.processor = proc;
   const raw = express.raw({ type: () => true, limit: '20mb' });
   app.post('/hik/:deviceId', raw, push);
   app.post('/hik/:deviceId/*', raw, push);

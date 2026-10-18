@@ -209,6 +209,24 @@ class IsapiClient {
     return IsapiClient.check(res);
   }
 
+  // ---------- events ----------
+
+  /**
+   * Searches the terminal's event log (major 5 = access events). `startTime`/`endTime` are ISO strings
+   * with offset. Returns { status: 'OK'|'MORE'|'NO MATCH', total, list }.
+   */
+  async searchAcsEvents({ startTime, endTime, position = 0, max = 30, minor = 0 }) {
+    const d = await this.json('POST', '/ISAPI/AccessControl/AcsEvent?format=json', {
+      AcsEventCond: {
+        searchID: crypto.randomUUID(), searchResultPosition: position, maxResults: max,
+        major: 5, minor, startTime, endTime,
+      },
+    });
+    const r = d.AcsEvent || {};
+    const list = Array.isArray(r.InfoList) ? r.InfoList : (r.InfoList ? [r.InfoList] : []);
+    return { status: String(r.responseStatusStrg || 'OK').toUpperCase(), total: Number(r.totalMatches) || list.length, list };
+  }
+
   // ---------- persons ----------
 
   static userInfo(employee) {

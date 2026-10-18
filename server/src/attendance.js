@@ -49,6 +49,11 @@ async function processScan(store, settings, tz, device, ev) {
   if (!employee.active || employee.deleted) return { action: 'inactive_employee', employee };
 
   const t = ev.time || new Date();
+  // A scan from before this person was registered here belongs to someone else (old terminal data).
+  const registered = employee.createdAt ? new Date(String(employee.createdAt).replace(' ', 'T')).getTime() : NaN;
+  if (Number.isFinite(registered) && t.getTime() < registered - 5 * 60 * 1000) {
+    return { action: 'before_registration', employee };
+  }
   const date = localDate(t, tz);
   const existing = await store.getAttendance(employee.id, date);
   const rec = existing ? { ...existing } : { employeeId: employee.id, date };

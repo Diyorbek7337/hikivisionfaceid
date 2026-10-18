@@ -22,6 +22,8 @@ const { IsapiClient } = require('./isapi');
 const { SyncEngine } = require('./sync');
 const { DeviceMonitor } = require('./monitor');
 const { createServer } = require('./server');
+const { createEventProcessor } = require('./events');
+const { EventPoller } = require('./poller');
 const { createApi } = require('./api');
 const { createAuth } = require('./auth');
 const { createBackup } = require('./backup');
@@ -61,7 +63,9 @@ store.on('devices', () => {
 });
 
 const api = createApi({ store, auth, cfg, sync, backup, version: pkg.version });
-const app = createServer({ store, cfg, telegram, api });
+const processor = createEventProcessor({ store, tz: cfg.timezone, telegram });
+const poller = new EventPoller({ store, clientFor, processor, tz: cfg.timezone });
+const app = createServer({ store, cfg, telegram, api, processor });
 
 const { port: wantedPort, fixed } = preferredPort(cfg);
 
@@ -88,6 +92,8 @@ listenWithFallback(app, wantedPort).then(({ port }) => {
   setInterval(() => {
     monitor.checkAll().then(() => sync.schedule()).catch((e) => console.error(e));
   }, cfg.deviceCheckSeconds * 1000).unref();
+
+  poller.start();
 
   backup.daily();
   setInterval(() => backup.daily(), 3600 * 1000).unref();

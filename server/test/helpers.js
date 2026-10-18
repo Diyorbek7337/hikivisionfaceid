@@ -48,7 +48,7 @@ function startFakeTerminal({ username = 'admin', password = 'secret', faceError 
   let nonce = crypto.randomBytes(8).toString('hex');
   const usedNonces = new Set();
   let failures = 0;
-  const state = { users: new Map(), faces: new Map(), requests: [], time: '2020-01-01T00:00:00+05:00', setTimeBody: null };
+  const state = { users: new Map(), faces: new Map(), requests: [], time: '2020-01-01T00:00:00+05:00', setTimeBody: null, events: [] };
 
   function authorized(req) {
     const h = req.headers.authorization || '';
@@ -96,6 +96,19 @@ function startFakeTerminal({ username = 'admin', password = 'secret', faceError 
       if (url === '/ISAPI/System/time') {
         if (req.method === 'PUT') { state.setTimeBody = body.toString(); return res.end('<ResponseStatus><statusCode>1</statusCode></ResponseStatus>'); }
         return res.end(`<Time><timeMode>manual</timeMode><localTime>${state.time}</localTime><timeZone>CST-5:00:00</timeZone></Time>`);
+      }
+      if (url.startsWith('/ISAPI/AccessControl/AcsEvent')) {
+        const c = JSON.parse(body).AcsEventCond;
+        const from = new Date(c.startTime).getTime();
+        const to = new Date(c.endTime).getTime();
+        const all = state.events.filter((e) => e.major === c.major && (!c.minor || e.minor === c.minor)
+          && new Date(e.time).getTime() >= from && new Date(e.time).getTime() <= to);
+        const list = all.slice(c.searchResultPosition, c.searchResultPosition + c.maxResults);
+        const more = c.searchResultPosition + list.length < all.length;
+        return res.end(JSON.stringify({ AcsEvent: {
+          searchID: c.searchID, totalMatches: all.length, numOfMatches: list.length,
+          responseStatusStrg: all.length ? (more ? 'MORE' : 'OK') : 'NO MATCH', ...(list.length ? { InfoList: list } : {}),
+        } }));
       }
       if (url.startsWith('/ISAPI/AccessControl/UserInfo/Record')) {
         const u = JSON.parse(body).UserInfo;

@@ -81,6 +81,15 @@ function hikTimeZone(offsetMinutes) {
   return `CST${sign}${Math.floor(abs / 60)}:${String(abs % 60).padStart(2, '0')}:00`;
 }
 
+/** "2026-10-18T09:05:00+05:00" — local wall clock with the zone offset (ISAPI search conditions). */
+function isoWithOffset(date, tz) {
+  const off = tzOffsetMinutes(date, tz);
+  const sign = off >= 0 ? '+' : '-';
+  const a = Math.abs(off);
+  return `${localIsoNoOffset(date, tz)}${sign}${String(Math.floor(a / 60)).padStart(2, '0')}:${String(a % 60).padStart(2, '0')}`;
+}
+
 module.exports = {
+  isoWithOffset,
   localDate, localTime, localMinutes, parseHHMM, formatDuration, tzOffsetMinutes, localIsoNoOffset, hikTimeZone,
 };
