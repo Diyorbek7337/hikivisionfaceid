@@ -1,4 +1,11 @@
-export const TZ = 'Asia/Tashkent';
+// The server's time zone (from /api/status); Tashkent until it is known.
+let TZ = 'Asia/Tashkent';
+export function setTimezone(tz) {
+  if (tz && tz !== TZ) {
+    TZ = tz;
+    cache.clear();
+  }
+}
 
 const cache = new Map();
 function fmt(opts) {

@@ -3,6 +3,7 @@ import { createContext, useCallback, useContext, useEffect, useState } from 'rea
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { api } from '@/lib/api';
+import { setTimezone } from '@/lib/time';
 import Login from './Login';
 import Setup from './Setup';
 
@@ -31,7 +32,11 @@ export default function AppShell({ children }) {
       const s = await api('/session');
       setSession(s);
       setError('');
-      if (s.user) setStatus(await api('/status'));
+      if (s.user) {
+        const st = await api('/status');
+        setTimezone(st.timezone);
+        setStatus(st);
+      }
     } catch (e) {
       setError(e.message);
     }

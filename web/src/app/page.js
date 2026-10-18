@@ -9,6 +9,7 @@ const STATUS = {
   present: <span className="pill ok">Keldi</span>,
   absent: <span className="pill bad">Kelmagan</span>,
   off: <span className="pill muted">Dam olish</span>,
+  pending: <span className="pill muted" title="Ish vaqti hali boshlanmagan">Kutilmoqda</span>,
 };
 
 export default function Dashboard() {

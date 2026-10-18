@@ -18,6 +18,7 @@ export default function Devices() {
   const serverIp = (status.ips && status.ips[0]) || 'SERVER_KOMPYUTER_IP';
 
   async function resync(d) {
+    if (!confirm(`"${d.name}" ga barcha xodim va yuzlar qayta yuboriladi.\nTerminalda bo'lib, tizimda yo'q odamlar terminaldan o'chiriladi. Davom etasizmi?`)) return;
     await api(`/devices/${d.id}/resync`, { method: 'POST' });
     reload();
   }
@@ -34,7 +35,7 @@ export default function Devices() {
             <h2 style={{ margin: 0 }}>{d.name} <DeviceStatus device={d} /></h2>
             <div className="row">
               <button className="secondary small" onClick={() => setEditing(d)}>Tahrirlash</button>
-              <button className="secondary small" title="Barcha xodim va yuzlarni terminalga qaytadan yuborish" onClick={() => resync(d)}>🔄 Qayta yuborish</button>
+              <button className="secondary small" title="Barcha xodim va yuzlarni terminalga qaytadan yuborish; tizimda yo'q odamlarni terminaldan o'chirish" onClick={() => resync(d)}>🔄 Qayta yuborish</button>
             </div>
           </div>
           <p>
