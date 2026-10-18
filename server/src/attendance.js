@@ -34,10 +34,20 @@ function computeStats(rec, settings, tz) {
   return { ...rec, ...day, punches, lateMinutes: late, earlyMinutes: early };
 }
 
-/** Pay for one day, rounded to whole so'm (totals are sums of rounded days, so they always add up). */
+/**
+ * Pay for one day, rounded to whole so'm (totals are sums of rounded days, so they always add up).
+ *   hourly  — rate × worked time (complete visits only)
+ *   daily   — rate once for a day the person came
+ *   session — rate × number of visits that day (e.g. a lesson each time)
+ */
 function salaryFor(rec) {
-  if (!rec.workedMinutes || !rec.hourlyRate) return 0;
-  return Math.round((rec.workedMinutes / 60) * rec.hourlyRate);
+  const rate = Number(rec.payRate) || 0;
+  if (!rate) return 0;
+  const visits = rec.sessions ? rec.sessions.length : (rec.checkIn || rec.checkOut ? 1 : 0);
+  if (rec.payType === 'daily') return visits ? Math.round(rate) : 0;
+  if (rec.payType === 'session') return Math.round(rate * visits);
+  if (!rec.workedMinutes) return 0;
+  return Math.round((rec.workedMinutes / 60) * rate);
 }
 
 /**
@@ -81,7 +91,8 @@ async function processScan(store, settings, tz, device, ev) {
       employeeName: employee.name,
       workStart: hours ? hours.start : null,
       workEnd: hours ? hours.end : null,
-      hourlyRate: Number(employee.hourlyRate) || 0,
+      payType: employee.payType || 'hourly',
+      payRate: Number(employee.payRate) || 0,
     });
   }
   const record = computeStats(rec, settings, tz);

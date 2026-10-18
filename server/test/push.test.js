@@ -17,7 +17,7 @@ async function setup() {
   const store = new MemoryStore();
   store.addDevice({ id: 'in1', name: 'Kirish', direction: 'in', ip: '127.0.0.1' });
   store.addDevice({ id: 'out1', name: 'Chiqish', direction: 'out', ip: '127.0.0.1' });
-  store.addEmployee({ id: 'e1', employeeNo: '1', name: 'Aziz', hourlyRate: 25000, telegramChatId: '111' });
+  store.addEmployee({ id: 'e1', employeeNo: '1', name: 'Aziz', payRate: 25000, telegramChatId: '111' });
   const sent = [];
   const telegram = { enabled: true, async send(c, t) { sent.push({ c, t }); }, async notifyAdmins(t) { sent.push({ c: 'admins', t }); } };
   const app = createServer({

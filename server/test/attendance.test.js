@@ -189,3 +189,38 @@ test('flexible schedule: no lateness, no absence; presence and hours still count
   const { buildDailyReport } = require('../src/report');
   assert.equal(buildDailyReport(store, '2026-10-16', tz), null);
 });
+
+test('pay types: hourly, per day, per visit (lesson); the rate of the day is kept', async () => {
+  const { store, emp } = setup();
+  const kir = { id: 'k', name: 'Kirish', direction: 'in' };
+  const chiq = { id: 'c', name: 'Chiqish', direction: 'out' };
+  const twoVisits = async (date) => {
+    await scan(store, emp, kir, at(date, '08:00'));
+    await scan(store, emp, chiq, at(date, '09:30'));
+    await scan(store, emp, kir, at(date, '14:00'));
+    await scan(store, emp, chiq, at(date, '15:00'));
+  };
+  const { salaryFor } = require('../src/attendance');
+  store.updateEmployee(emp.id, { ...emp, payType: 'hourly', payRate: 40000 });
+  await twoVisits('2026-10-12');
+  assert.equal(salaryFor(await store.getAttendance(emp.id, '2026-10-12')), 100000); // 2.5 h
+
+  store.updateEmployee(emp.id, { ...emp, payType: 'daily', payRate: 150000 });
+  await twoVisits('2026-10-13');
+  assert.equal(salaryFor(await store.getAttendance(emp.id, '2026-10-13')), 150000);
+  // only an arrival (forgot to scan out) still counts as a day present
+  await scan(store, emp, kir, at('2026-10-14', '08:00'));
+  assert.equal(salaryFor(await store.getAttendance(emp.id, '2026-10-14')), 150000);
+
+  store.updateEmployee(emp.id, { ...emp, payType: 'session', payRate: 50000 });
+  await twoVisits('2026-10-15');
+  const r = await store.getAttendance(emp.id, '2026-10-15');
+  assert.equal(r.payType, 'session');
+  assert.equal(salaryFor(r), 100000);
+
+  // a later rate change does not rewrite past days
+  store.updateEmployee(emp.id, { ...emp, payType: 'hourly', payRate: 1 });
+  const p = periodSummary(store, '2026-10-12', '2026-10-15', tz, at('2026-10-16', '09:00')).summary[0];
+  assert.equal(p.pay, 100000 + 150000 + 150000 + 100000);
+  assert.equal(p.payType, 'hourly');
+});

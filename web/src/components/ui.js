@@ -44,3 +44,16 @@ export function scheduleSummary(s) {
   if (!groups.size) return 'ish kuni yo\'q';
   return [...groups.entries()].map(([time, days]) => `${days.join(',')} ${time}`).join('; ');
 }
+
+export const PAY_TYPES = [
+  ['hourly', 'Soatbay — ishlagan vaqtiga', 'soat'],
+  ['daily', 'Kunbay — har kelgan kuni uchun', 'kun'],
+  ['session', 'Har bir kelish uchun (darsbay)', 'kelish'],
+];
+
+/** "30,000 / soat" */
+export function rateText(payType, payRate, money) {
+  if (!payRate) return '';
+  const t = PAY_TYPES.find(([k]) => k === payType) || PAY_TYPES[0];
+  return `${money(payRate)} / ${t[2]}`;
+}

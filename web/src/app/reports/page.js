@@ -3,10 +3,9 @@ import { useMemo, useState } from 'react';
 import { api, useApi } from '@/lib/api';
 import { useApp } from '@/components/AppShell';
 import { formatDuration, localTime, money } from '@/lib/time';
-import { ErrorBox } from '@/components/ui';
+import { ErrorBox, rateText } from '@/components/ui';
 import { SessionList, openCount, sessionsText } from '@/components/Sessions';
 
-const pay = (r) => (r.workedMinutes && r.hourlyRate ? (r.workedMinutes / 60) * r.hourlyRate : 0);
 
 export default function Reports() {
   const { status } = useApp();
@@ -44,7 +43,7 @@ export default function Reports() {
     out.push(['Sana', 'Xodim', 'ID', 'Keldi', 'Ketdi', 'Kelib-ketishlar', 'Kechikish (daq)', 'Erta ketish (daq)', 'Ishlagan (soat)', "Summa (so'm)", "Qo'lda"]);
     for (const r of [...records].reverse()) {
       out.push([r.date, r.employeeName, r.employeeNo, localTime(r.checkIn), localTime(r.checkOut), sessionsText(r, today), r.lateMinutes || 0, r.earlyMinutes || 0,
-        r.workedMinutes != null ? (r.workedMinutes / 60).toFixed(2).replace('.', ',') : '', Math.round(pay(r)), r.manual ? 'ha' : '']);
+        r.workedMinutes != null ? (r.workedMinutes / 60).toFixed(2).replace('.', ',') : '', r.pay || 0, r.manual ? 'ha' : '']);
     }
     const blob = new Blob([`﻿${out.map((l) => l.map(cell).join(';')).join('\r\n')}\r\n`], { type: 'text/csv;charset=utf-8' });
     const a = document.createElement('a');
@@ -86,7 +85,7 @@ export default function Reports() {
                 <td>{s.name}</td><td>{s.flexible ? <span className="muted" title="Erkin jadval">erkin</span> : s.workDays}</td><td>{s.presentDays}</td>
                 <td className={s.absentDays ? 'bad' : ''}>{s.flexible && !s.absentDays ? <span className="muted">—</span> : s.absentDays}</td>
                 <td className={s.lateCount ? 'warn' : ''}>{s.lateCount}</td><td>{formatDuration(s.lateMinutes)}</td>
-                <td>{s.earlyCount}</td><td>{formatDuration(s.workedMinutes)}</td>{showPay && <td>{money(s.pay)}</td>}
+                <td>{s.earlyCount}</td><td>{formatDuration(s.workedMinutes)}</td>{showPay && <td title={rateText(s.payType, s.payRate, money)}>{money(s.pay)}</td>}
               </tr>
             ))}
             {data && !summary.length && <tr><td colSpan={9} className="muted">Ma&apos;lumot yo&apos;q</td></tr>}
@@ -101,7 +100,7 @@ export default function Reports() {
             &quot;ishlagan&quot; ga qo&apos;shilmaydi. Kerak bo&apos;lsa, &quot;Tahrirlash&quot; orqali to&apos;g&apos;rilang.</div>
         )}
         <table>
-          <thead><tr><th>Sana</th><th>Xodim</th><th>Keldi</th><th>Ketdi</th><th>Kelib-ketishlar</th><th>Kechikish</th><th>Erta ketish</th><th>Ishlagan</th><th></th></tr></thead>
+          <thead><tr><th>Sana</th><th>Xodim</th><th>Keldi</th><th>Ketdi</th><th>Kelib-ketishlar</th><th>Kechikish</th><th>Erta ketish</th><th>Ishlagan</th>{showPay && <th>Summa</th>}<th></th></tr></thead>
           <tbody>
             {records.map((r) => (
               <tr key={r.id}>
@@ -113,10 +112,11 @@ export default function Reports() {
                 <td>{r.lateMinutes > 0 && <span className="warn">{formatDuration(r.lateMinutes)}</span>}</td>
                 <td>{r.earlyMinutes > 0 && <span className="warn">{formatDuration(r.earlyMinutes)}</span>}</td>
                 <td>{r.workedMinutes != null ? formatDuration(r.workedMinutes) : ''}</td>
+                {showPay && <td className="nw">{r.pay ? money(r.pay) : ''}</td>}
                 <td><button className="secondary small" onClick={() => setEditing(r)}>Tahrirlash</button></td>
               </tr>
             ))}
-            {data && !records.length && <tr><td colSpan={9} className="muted">Ma&apos;lumot yo&apos;q</td></tr>}
+            {data && !records.length && <tr><td colSpan={10} className="muted">Ma&apos;lumot yo&apos;q</td></tr>}
           </tbody>
         </table>
       </div>

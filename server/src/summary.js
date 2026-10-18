@@ -78,6 +78,7 @@ function periodSummary(store, from, to, tz, now = new Date()) {
     const s = {
       employeeId: emp.id, employeeNo: emp.employeeNo, name: emp.name, position: emp.position,
       flexible: store.isFlexible(emp),
+      payType: emp.payType, payRate: emp.payRate,
       workDays: 0, presentDays: 0, absentDays: 0, lateCount: 0, lateMinutes: 0, earlyCount: 0, workedMinutes: 0, pay: 0, openSessions: 0,
     };
     const recByDate = new Map(recs.map((r) => [r.date, r]));

@@ -3,7 +3,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { useApi, faceUrl } from '@/lib/api';
 import { money, normText } from '@/lib/time';
-import { SyncBadge, ErrorBox, scheduleSummary } from '@/components/ui';
+import { SyncBadge, ErrorBox, scheduleSummary, rateText } from '@/components/ui';
 
 export default function Employees() {
   const { data: all, error } = useApi('/employees', { refreshMs: 8000 });
@@ -40,7 +40,7 @@ export default function Employees() {
       <div className="card">
         <table>
           <thead><tr>
-            <th></th><th>ID</th><th>Ism</th><th>Lavozim</th><th>Jadval</th><th>Soatbay</th>
+            <th></th><th>ID</th><th>Ism</th><th>Lavozim</th><th>Jadval</th><th>Stavka</th>
             {devs.map((d) => <th key={d.id}>{d.name}</th>)}<th></th>
           </tr></thead>
           <tbody>
@@ -54,7 +54,7 @@ export default function Employees() {
                   {e.personalSchedule && e.personalSchedule.type !== 'flexible'
                     && <span title={scheduleSummary(e.personalSchedule)}>Shaxsiy: <span className="muted">{scheduleSummary(e.personalSchedule)}</span></span>}
                   {!e.personalSchedule && (sched.get(e.scheduleId) || defaultSched)}</td>
-                <td>{e.hourlyRate ? money(e.hourlyRate) : ''}</td>
+                <td className="nw">{rateText(e.payType, e.payRate, money)}</td>
                 {devs.map((d) => <td key={d.id}><SyncBadge employee={e} device={d} /></td>)}
                 <td><Link href={`/employees/edit/?id=${e.id}`}>Tahrirlash</Link></td>
               </tr>

@@ -77,7 +77,7 @@ test('import, schedules, faces, scans, report with absences', async (t) => {
   const emps = (await call('GET', '/api/employees')).body;
   assert.deepEqual(emps.map((e) => e.employeeNo), ['1', '2']);
   const aziz = emps.find((e) => e.name === 'Karimov Aziz');
-  const upd = await call('PUT', `/api/employees/${aziz.id}`, { ...aziz, scheduleId: sched.body.id, hourlyRate: 30000 });
+  const upd = await call('PUT', `/api/employees/${aziz.id}`, { ...aziz, scheduleId: sched.body.id, payRate: 30000 });
   assert.equal(upd.status, 200, JSON.stringify(upd.body));
 
   // Face upload
@@ -201,7 +201,7 @@ test('security: sessions are revoked on logout/password change; bad cookies; dev
   for (const ip of ['evil.example.com', 'localhost', '1.2.3', '300.1.1.1']) {
     assert.equal((await call('POST', '/api/devices', { name: 'x', ip, password: 'p' })).status, 400, ip);
   }
-  assert.equal((await call('POST', '/api/employees', { name: 'X', hourlyRate: '1e400' })).body.hourlyRate, 0);
+  assert.equal((await call('POST', '/api/employees', { name: 'X', payRate: '1e400' })).body.payRate, 0);
   // personal schedule: times are checked like a shared schedule
   const badDays = await call('POST', '/api/employees', { name: 'Y', personalSchedule: { days: { 1: { start: '12:00', end: '09:00' } } } });
   assert.equal(badDays.status, 400);
@@ -235,7 +235,7 @@ test('manual editing of a day with several sessions', async (t) => {
   const { store, server, call } = await setup();
   t.after(() => server.close());
   await call('POST', '/api/setup', { username: 'admin', password: 'parol123' });
-  const emp = (await call('POST', '/api/employees', { name: 'Usmonov Bekzod', hourlyRate: 60000 })).body;
+  const emp = (await call('POST', '/api/employees', { name: 'Usmonov Bekzod', hourlyRate: 60000 /* older clients */ })).body;
   store.db.prepare("UPDATE employees SET created_at = '2026-01-01T00:00:00Z'").run();
   store.reloadEmployees(false);
   const put = (body) => call('PUT', '/api/attendance', { employeeId: emp.id, date: '2026-01-12', ...body });
@@ -260,5 +260,11 @@ test('manual editing of a day with several sessions', async (t) => {
   // pay counts complete sessions only
   const rep = await call('GET', '/api/report?from=2026-01-12&to=2026-01-12');
   assert.equal(rep.body.summary[0].pay, 240000);
+  assert.equal(rep.body.records[0].pay, 240000, 'pay per day is sent with the record');
+  assert.equal(rep.body.records[0].punches, undefined, 'raw scans stay on the server');
+  // per-visit pay
+  const up = await call('PUT', `/api/employees/${emp.id}`, { ...emp, payType: 'session', payRate: 70000 });
+  assert.equal(up.body.payType, 'session');
+  assert.equal((await call('PUT', `/api/employees/${emp.id}`, { ...emp, payType: 'weird', payRate: 5 })).body.payType, 'hourly');
   assert.equal(rep.body.records[0].sessions.length, 3);
 });

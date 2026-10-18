@@ -9,8 +9,11 @@ serverlari kerak emas, ma'lumotlar tashkilot ichida qoladi.
 - 📄 Xodimlarni **Excel'dan import** qilish (F.I.Sh., lavozim, telefon).
 - 📷 **Yuzlarni kiritish**: ro'yxatdan tanlab, kompyuter yoki telefon kamerasi bilan rasmga olish.
   Xodim va yuzi **terminallarga avtomatik yoziladi** — terminalga qo'lda kirish shart emas.
-- 🕐 **Ish jadvallari**: smenalar, hafta kunlari bo'yicha har xil vaqt, dam olish kunlari.
+- 🕐 **Ish jadvallari**: smenalar, hafta kunlari bo'yicha har xil vaqt, dam olish kunlari; xodimning
+  **shaxsiy jadvali** (faqat o'z kunlari keladiganlar uchun) va **erkin jadval** (kechikish/kelmaganlik yo'q).
 - ✅ Terminalda yuz ko'rsatilsa — **keldi/ketdi**, kechikish, erta ketish, ishlagan soat hisoblanadi.
+  Bir kunda **bir necha marta kelib-ketish** alohida hisoblanadi (08:00–10:00 + 14:00–16:00 = 4 soat).
+- 💰 To'lov: **soatbay**, **kunbay** yoki **har bir kelish uchun (darsbay)**.
 - 📊 **Bugun** sahifasi (jonli), **hisobot** (kelgan/kelmagan kunlar, kechikishlar), Excel'ga yuklab olish,
   unutilgan skanni qo'lda tuzatish.
 - 🤖 **Telegram**: direktorga har kuni ertalab "kim keldi / kechikdi / kelmadi" hisoboti (ixtiyoriy).
@@ -98,6 +101,27 @@ Tizimdagi **Terminallar** sahifasida "Terminalda sozlash" ni oching va bo'sh qat
 **Jadvallar** sahifasi: standart "Asosiy jadval" (Du–Sh 08:00–17:00) bor. Kerak bo'lsa qo'shing:
 "1-smena", "2-smena", "Ma'muriyat" va h.k. Har kun uchun alohida vaqt yoki dam olish belgilanadi.
 
+Faqat ma'lum kunlari yoki soatlarda keladigan xodimlar (o'qituvchilar, repetitorlar) uchun har biriga
+alohida jadval yaratish shart emas — **Xodimlar → Tahrirlash → Ish jadvali**:
+
+| Tanlov | Qachon | Nima hisoblanadi |
+|---|---|---|
+| **Umumiy jadval** | ko'pchilik xodimlar | Jadvallar sahifasidagi jadval bo'yicha |
+| **Shaxsiy kunlar va soatlar** | masalan, faqat Du 08:00–12:00 va Pa 14:00–16:00 | Faqat shu kunlar ish kuni; boshqa kunlari kelmasa — "kelmagan" emas |
+| **Erkin** | kerak bo'lganda keladi | Kechikish, erta ketish, "kelmagan" yo'q — faqat kelgan kunlari, soatlari va summasi |
+
+"Erkin" turini umumiy jadvalga ham berish mumkin (Jadvallar → jadval → **Erkin**).
+
+**Bir kunda bir necha marta kelib-ketish.** Har bir "keldi → ketdi" juftligi alohida hisoblanadi:
+08:00–10:00 va 14:00–16:00 bo'lsa, ishlagan vaqt 4 soat (oradagi vaqt qo'shilmaydi). Kechikish birinchi
+kelishdan, erta ketish oxirgi ketishdan hisoblanadi. Chiqishda (yoki kirishda) skan qilinmagan kelib-ketish
+hisobotda **sariq** bilan belgilanadi va ishlagan vaqtga qo'shilmaydi — **Tahrirlash** orqali to'g'rilanadi.
+Bitta terminal "Avto" rejimida bo'lsa, skanlar navbat bilan "keldi", "ketdi", "keldi"... deb olinadi.
+
+**To'lov.** Xodim kartasida: **Soatbay** (ishlagan vaqtiga), **Kunbay** (har kelgan kuni uchun bir marta) yoki
+**Har bir kelish uchun** (darsbay: kuniga 2 marta kelsa — 2 baravar). Stavka o'zgarsa, oldingi kunlar eski
+stavka bilan qoladi — yangisi keyingi kundan (aniqrog'i, xodimning keyingi birinchi skanidan) qo'llanadi.
+
 ### 3.2. Excel'dan import
 
 **Xodimlar → Excel'dan import** → `.xlsx` faylni tanlang. Ustunlar avtomatik aniqlanadi:
@@ -124,7 +148,8 @@ Xodim ishdan ketsa: **Tahrirlash → "Faol" belgisini olib tashlang** — u term
 
 - **Bugun** — kim keldi, kechikdi, kelmadi (kartochkani bossangiz — shu ro'yxat filtrlanadi).
 - **Hisobot** — sana oralig'i bo'yicha: ish kunlari, kelgan/kelmagan kunlar, kechikishlar, ishlagan soat.
-  **Excel (CSV)** tugmasi bilan yuklab olinadi. Xodim skan qilishni unutsa — **Tahrirlash** / **+ Qo'lda qo'shish**.
+  **Excel (CSV)** tugmasi bilan yuklab olinadi. Xodim skan qilishni unutsa — **Tahrirlash** (kunning barcha
+  kelib-ketishlari, har biri alohida qatorda) yoki **+ Qo'lda qo'shish** (faqat yetishmagan vaqtni kiriting).
 - **Eventlar** — terminallardan kelgan har bir skan (sozlashda tekshirish uchun).
 
 ---

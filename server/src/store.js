@@ -21,6 +21,8 @@ const DEFAULT_SETTINGS = {
 const bool = (v) => !!Number(v);
 const nowIso = () => new Date().toISOString();
 const json = (s, d) => { try { return JSON.parse(s); } catch { return d; } };
+const PAY_TYPES = new Set(['hourly', 'daily', 'session']);
+const payTypeOf = (v) => (PAY_TYPES.has(v) ? v : 'hourly');
 const toDate = (v) => (v ? new Date(v) : null);
 const iso = (v) => (v ? new Date(v).toISOString() : null);
 
@@ -39,7 +41,8 @@ function mapEmployee(r) {
     telegramChatId: r.telegram_chat_id || '',
     scheduleId: r.schedule_id,
     personalSchedule: json(r.personal_schedule, null),
-    hourlyRate: r.hourly_rate,
+    payType: payTypeOf(r.pay_type),
+    payRate: r.hourly_rate,
     active: bool(r.active),
     deleted: bool(r.deleted),
     hasFace: bool(r.has_face),
@@ -83,7 +86,8 @@ function mapAttendance(r) {
     checkOutDeviceName: r.check_out_device_name,
     workStart: r.work_start,
     workEnd: r.work_end,
-    hourlyRate: r.hourly_rate,
+    payType: payTypeOf(r.pay_type),
+    payRate: r.hourly_rate,
     lateMinutes: r.late_minutes,
     earlyMinutes: r.early_minutes,
     workedMinutes: r.worked_minutes,
@@ -214,10 +218,11 @@ class LocalStore extends EventEmitter {
   }
 
   createEmployee(e, { emit = true } = {}) {
-    const r = this.q(`INSERT INTO employees (employee_no, name, position, phone, telegram_chat_id, schedule_id, personal_schedule, hourly_rate, active)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+    const r = this.q(`INSERT INTO employees (employee_no, name, position, phone, telegram_chat_id, schedule_id, personal_schedule, pay_type, hourly_rate, active)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
       this.nextEmployeeNo(), e.name, e.position || null, e.phone || null, e.telegramChatId || null,
-      e.scheduleId || null, e.personalSchedule ? JSON.stringify(e.personalSchedule) : null, Number(e.hourlyRate) || 0, e.active === false ? 0 : 1,
+      e.scheduleId || null, e.personalSchedule ? JSON.stringify(e.personalSchedule) : null,
+      payTypeOf(e.payType), Number(e.payRate) || 0, e.active === false ? 0 : 1,
     );
     if (emit) this.reloadEmployees();
     return Number(r.lastInsertRowid);
@@ -225,9 +230,10 @@ class LocalStore extends EventEmitter {
 
   updateEmployee(id, e) {
     this.q(`UPDATE employees SET name = ?, position = ?, phone = ?, telegram_chat_id = ?, schedule_id = ?, personal_schedule = ?,
-      hourly_rate = ?, active = ?, version = version + 1, updated_at = ? WHERE id = ?`).run(
+      pay_type = ?, hourly_rate = ?, active = ?, version = version + 1, updated_at = ? WHERE id = ?`).run(
       e.name, e.position || null, e.phone || null, e.telegramChatId || null, e.scheduleId || null,
-      e.personalSchedule ? JSON.stringify(e.personalSchedule) : null, Number(e.hourlyRate) || 0, e.active ? 1 : 0, nowIso(), id,
+      e.personalSchedule ? JSON.stringify(e.personalSchedule) : null, payTypeOf(e.payType), Number(e.payRate) || 0,
+      e.active ? 1 : 0, nowIso(), id,
     );
     this.reloadEmployees();
   }
@@ -346,16 +352,16 @@ class LocalStore extends EventEmitter {
 
   async saveAttendance(rec) {
     this.q(`INSERT INTO attendance (employee_id, date, employee_no, employee_name, check_in, check_in_device_id, check_in_device_name,
-        check_out, check_out_device_id, check_out_device_name, work_start, work_end, hourly_rate, late_minutes, early_minutes,
+        check_out, check_out_device_id, check_out_device_name, work_start, work_end, pay_type, hourly_rate, late_minutes, early_minutes,
         worked_minutes, manual, punches, updated_at)
       VALUES (:employee_id, :date, :employee_no, :employee_name, :check_in, :check_in_device_id, :check_in_device_name,
-        :check_out, :check_out_device_id, :check_out_device_name, :work_start, :work_end, :hourly_rate, :late_minutes,
+        :check_out, :check_out_device_id, :check_out_device_name, :work_start, :work_end, :pay_type, :hourly_rate, :late_minutes,
         :early_minutes, :worked_minutes, :manual, :punches, :updated_at)
       ON CONFLICT (employee_id, date) DO UPDATE SET
         employee_no = excluded.employee_no, employee_name = excluded.employee_name,
         check_in = excluded.check_in, check_in_device_id = excluded.check_in_device_id, check_in_device_name = excluded.check_in_device_name,
         check_out = excluded.check_out, check_out_device_id = excluded.check_out_device_id, check_out_device_name = excluded.check_out_device_name,
-        work_start = excluded.work_start, work_end = excluded.work_end, hourly_rate = excluded.hourly_rate,
+        work_start = excluded.work_start, work_end = excluded.work_end, pay_type = excluded.pay_type, hourly_rate = excluded.hourly_rate,
         late_minutes = excluded.late_minutes, early_minutes = excluded.early_minutes, worked_minutes = excluded.worked_minutes,
         manual = excluded.manual, punches = excluded.punches, updated_at = excluded.updated_at`).run({
       employee_id: rec.employeeId,
@@ -370,7 +376,8 @@ class LocalStore extends EventEmitter {
       check_out_device_name: rec.checkOutDeviceName ?? null,
       work_start: rec.workStart ?? null,
       work_end: rec.workEnd ?? null,
-      hourly_rate: Number(rec.hourlyRate) || 0,
+      pay_type: payTypeOf(rec.payType),
+      hourly_rate: Number(rec.payRate) || 0,
       late_minutes: rec.lateMinutes || 0,
       early_minutes: rec.earlyMinutes || 0,
       worked_minutes: rec.workedMinutes ?? null,

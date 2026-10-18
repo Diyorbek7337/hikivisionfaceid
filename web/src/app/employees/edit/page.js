@@ -4,14 +4,14 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { api, useApi, faceUrl } from '@/lib/api';
 import FacePicker from '@/components/FacePicker';
-import { scheduleSummary } from '@/components/ui';
+import { scheduleSummary, PAY_TYPES } from '@/components/ui';
 import DaysEditor, { blankDays, FlexibleHint } from '@/components/DaysEditor';
 
 export default function Page() {
   return <Suspense fallback={<p className="muted">Yuklanmoqda…</p>}><EmployeeForm /></Suspense>;
 }
 
-const EMPTY = { name: '', position: '', phone: '', telegramChatId: '', scheduleId: '', personalSchedule: null, hourlyRate: 0, active: true };
+const EMPTY = { name: '', position: '', phone: '', telegramChatId: '', scheduleId: '', personalSchedule: null, payType: 'hourly', payRate: 0, active: true };
 
 function EmployeeForm() {
   const router = useRouter();
@@ -107,7 +107,11 @@ function EmployeeForm() {
           <label>F.I.Sh. *<input value={form.name} onChange={set('name')} maxLength={100} required /></label>
           <label>Lavozim<input value={form.position} onChange={set('position')} maxLength={100} placeholder="O'qituvchi, qorovul…" /></label>
           <label>Telefon<input value={form.phone} onChange={set('phone')} maxLength={30} /></label>
-          <label>Soatbay stavka (so&apos;m)<input type="number" min="0" step="1" value={form.hourlyRate} onChange={set('hourlyRate')} /></label>
+          <label>To&apos;lov<select value={form.payType} onChange={set('payType')}>
+            {PAY_TYPES.map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+          </select></label>
+          <label>Stavka (so&apos;m {(PAY_TYPES.find(([k]) => k === form.payType) || PAY_TYPES[0])[2]}iga)
+            <input type="number" min="0" step="1" value={form.payRate} onChange={set('payRate')} placeholder="0 — hisoblanmaydi" /></label>
           <label>Telegram chat ID<input value={form.telegramChatId} onChange={set('telegramChatId')} placeholder="Bot /start da ko'rsatadi" /></label>
           <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <input type="checkbox" checked={!!form.active} onChange={set('active')} /> Faol (terminal taniydi)

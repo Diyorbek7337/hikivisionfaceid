@@ -5,7 +5,7 @@ const path = require('node:path');
 const express = require('express');
 const { isLocalRequest } = require('./auth');
 const { localDate, localTime, parseHHMM, tzOffsetMinutes } = require('./time');
-const { computeStats } = require('./attendance');
+const { computeStats, salaryFor } = require('./attendance');
 const { daySummary, periodSummary } = require('./summary');
 const { lanAddresses } = require('./net');
 
@@ -48,7 +48,8 @@ function cleanEmployee(b) {
     telegramChatId: String(b.telegramChatId || '').trim().slice(0, 20),
     scheduleId: b.scheduleId ? Number(b.scheduleId) : null,
     personalSchedule: b.personalSchedule ? cleanScheduleBody(b.personalSchedule) : null,
-    hourlyRate: clampInt(b.hourlyRate, 0, 100000000),
+    payType: ['hourly', 'daily', 'session'].includes(b.payType) ? b.payType : 'hourly',
+    payRate: clampInt(b.payRate ?? b.hourlyRate, 0, 100000000), // hourlyRate: older clients
     active: b.active !== false,
   };
   if (!e.name) throw bad('Ismni kiriting');
@@ -373,7 +374,8 @@ function createApi({ store, auth, cfg, sync, backup, version }) {
       ...(existing || {}),
       employeeId: emp.id, date, employeeNo: emp.employeeNo, employeeName: emp.name,
       workStart: hours ? hours.start : null, workEnd: hours ? hours.end : null,
-      hourlyRate: existing ? existing.hourlyRate : emp.hourlyRate,
+      payType: existing ? existing.payType : emp.payType,
+      payRate: existing ? existing.payRate : emp.payRate,
       punches,
       manual: true,
     }, store.settings, tz);
@@ -434,11 +436,11 @@ function createApi({ store, auth, cfg, sync, backup, version }) {
   return api;
 }
 
-/** Attendance record without the raw scan list (sessions carry the same information). */
+/** Attendance record without the raw scan list (sessions carry the same information), with the day's pay. */
 function publicRecord(r) {
   if (!r) return r;
   const { punches, ...rest } = r;
-  return rest;
+  return { ...rest, pay: salaryFor(r) };
 }
 
 function publicDevice(d) {

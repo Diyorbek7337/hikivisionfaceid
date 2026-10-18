@@ -148,6 +148,10 @@ function migrate(db) {
   const attCols = db.prepare('PRAGMA table_info(attendance)').all().map((c) => c.name);
   // JSON list of the day's scans; the in/out sessions are derived from it (NULL in records from older versions)
   if (!attCols.includes('punches')) db.exec('ALTER TABLE attendance ADD COLUMN punches TEXT');
+  // How pay is counted: 'hourly' (worked time), 'daily' (each day present), 'session' (each visit, e.g. a lesson).
+  // The amount stays in hourly_rate (the column name is from older versions).
+  if (!empCols.includes('pay_type')) db.exec("ALTER TABLE employees ADD COLUMN pay_type TEXT NOT NULL DEFAULT 'hourly'");
+  if (!attCols.includes('pay_type')) db.exec("ALTER TABLE attendance ADD COLUMN pay_type TEXT NOT NULL DEFAULT 'hourly'");
   if (!empCols.includes('personal_schedule')) db.exec('ALTER TABLE employees ADD COLUMN personal_schedule TEXT');
 }
 
