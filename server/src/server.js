@@ -50,7 +50,7 @@ function createPushGuard({ store, log = console }) {
 function createPushHandler({ store, processor, log = console, samplePath = null }) {
   const seen = new Set(); // devices that have pushed something since start
   const handler = (req, res) => {
-    const p = run(req, res);
+    const p = run(req, res).catch((err) => log.error('❌ Event qabul qilishda xato:', err && err.message));
     handler.idle = Promise.all([handler.idle, p]).then(() => {});
     return p;
   };
@@ -79,7 +79,7 @@ function createPushHandler({ store, processor, log = console, samplePath = null 
       return;
     }
     const ev = normalizeEvent(raw);
-    if (ev.isHeartbeat) return;
+    if (!ev || ev.isHeartbeat) return;
     if (!ev.isAccess) {
       log.log(`ℹ️  ${device.name}: ${ev.eventType || 'noma\'lum event'} (o'tkazib yuborildi)`);
       saveSample(req);

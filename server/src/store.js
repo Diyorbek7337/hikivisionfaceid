@@ -253,6 +253,7 @@ class LocalStore extends EventEmitter {
   }
 
   async setEmployeeSync(employeeId, deviceId, data) {
+    if (!this.devices.has(deviceId)) return; // terminal deleted while it was being synced
     const emp = this.employees.get(employeeId);
     const current = emp ? emp.deviceSync : json((this.q('SELECT device_sync FROM employees WHERE id = ?').get(employeeId) || {}).device_sync, {});
     const next = { ...current, [deviceId]: data };
@@ -265,8 +266,11 @@ class LocalStore extends EventEmitter {
 
   saveDevice(d) {
     if (d.id) {
-      this.q(`UPDATE devices SET name = ?, ip = ?, port = ?, username = ?, password = ?, direction = ?, status = '{}' WHERE id = ?`)
-        .run(d.name, d.ip, Number(d.port) || 80, d.username || 'admin', d.password ?? '', d.direction, d.id);
+      // Keep the status (event cursor, serial number…) but make the monitor check the terminal again.
+      const old = this.devices.get(d.id);
+      const { online: _o, lastError: _e, ...keep } = old ? json(this.q('SELECT status FROM devices WHERE id = ?').get(d.id).status, {}) : {};
+      this.q('UPDATE devices SET name = ?, ip = ?, port = ?, username = ?, password = ?, direction = ?, status = ? WHERE id = ?')
+        .run(d.name, d.ip, Number(d.port) || 80, d.username || 'admin', d.password ?? '', d.direction, JSON.stringify(keep), d.id);
       this.reloadDevices();
       return d.id;
     }
@@ -279,6 +283,13 @@ class LocalStore extends EventEmitter {
 
   deleteDevice(id) {
     this.q('DELETE FROM devices WHERE id = ?').run(id);
+    // forget this terminal's sync state in every employee row
+    for (const e of this.employees.values()) {
+      if (e.deviceSync && e.deviceSync[id]) {
+        delete e.deviceSync[id];
+        this.q('UPDATE employees SET device_sync = ? WHERE id = ?').run(JSON.stringify(e.deviceSync), e.id);
+      }
+    }
     this.reloadDevices();
   }
 

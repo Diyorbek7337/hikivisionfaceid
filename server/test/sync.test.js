@@ -55,8 +55,12 @@ test('face errors are reported per employee and retried later', async (t) => {
   const s = store.employees.get('e1').deviceSync.d1;
   assert.equal(s.status, 'error');
   assert.match(s.message, /yuz/i);
+  assert.equal(s.permanent, true);
+  // a rejected photo is not re-sent every minute…
+  sync.now = () => Date.now() + 3600000;
   assert.equal(sync.needsSync(store.employees.get('e1'), store.devices.get('d1')), false);
-  sync.now = () => Date.now() + 120000;
+  // …only after the employee (photo) changes
+  store.employees.get('e1').version = 2;
   assert.equal(sync.needsSync(store.employees.get('e1'), store.devices.get('d1')), true);
 });
 
@@ -104,4 +108,21 @@ test('terminal coming back online triggers a sync (real store)', async (t) => {
   await mon.checkAll();
   assert.equal(store.getDevice(id).online, true);
   assert.equal(calls, 1);
+});
+
+test('people on the terminal who are not employees here are removed (first sync and resync)', async (t) => {
+  const { term, store, sync } = await setup();
+  t.after(() => term.close());
+  for (let i = 100; i < 140; i += 1) term.state.users.set(String(i), { employeeNo: String(i), name: `Eski ${i}` });
+  store.addEmployee({ id: 'e1', employeeNo: '1', name: 'Aziz' });
+  await sync.schedule();
+  assert.deepEqual([...term.state.users.keys()], ['1']);
+  assert.ok(store.devices.get('d1').reconciledAt);
+  // someone adds a person directly on the terminal -> removed on "Qayta yuborish"
+  term.state.users.set('77', { employeeNo: '77', name: 'Qo\'lda' });
+  await sync.schedule();
+  assert.ok(term.state.users.has('77'), 'not touched without a resync request');
+  store.devices.get('d1').resyncRequestedAt = Date.now();
+  await sync.schedule();
+  assert.deepEqual([...term.state.users.keys()], ['1']);
 });

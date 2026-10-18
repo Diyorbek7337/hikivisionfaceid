@@ -110,6 +110,16 @@ function startFakeTerminal({ username = 'admin', password = 'secret', faceError 
           responseStatusStrg: all.length ? (more ? 'MORE' : 'OK') : 'NO MATCH', ...(list.length ? { InfoList: list } : {}),
         } }));
       }
+      if (url.startsWith('/ISAPI/AccessControl/UserInfo/Search')) {
+        const c = JSON.parse(body).UserInfoSearchCond;
+        const all = [...state.users.values()];
+        const list = all.slice(c.searchResultPosition, c.searchResultPosition + c.maxResults);
+        const more = c.searchResultPosition + list.length < all.length;
+        return res.end(JSON.stringify({ UserInfoSearch: {
+          searchID: c.searchID, responseStatusStrg: all.length ? (more ? 'MORE' : 'OK') : 'NO MATCH',
+          numOfMatches: list.length, totalMatches: all.length, ...(list.length ? { UserInfo: list } : {}),
+        } }));
+      }
       if (url.startsWith('/ISAPI/AccessControl/UserInfo/Record')) {
         const u = JSON.parse(body).UserInfo;
         if (state.users.has(u.employeeNo)) return fail(res, 'employeeNoAlreadyExist');

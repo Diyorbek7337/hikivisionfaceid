@@ -15,6 +15,10 @@ if (process.platform === 'win32') {
   }
 }
 
+// Never let one unexpected error stop the whole system: log it and keep running.
+process.on('unhandledRejection', (err) => console.error('❌ Kutilmagan xato:', (err && err.stack) || err));
+process.on('uncaughtException', (err) => console.error('❌ Kutilmagan xato:', (err && err.stack) || err));
+
 const { loadConfig } = require('./config');
 const { openDatabase } = require('./db');
 const { LocalStore } = require('./store');

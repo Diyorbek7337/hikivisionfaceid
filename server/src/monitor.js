@@ -47,13 +47,21 @@ class DeviceMonitor {
       Object.assign(update, {
         online: true, lastError: '', model: info.model, serialNumber: info.serialNumber, firmware: info.firmware,
       });
+      if (dev.serialNumber && info.serialNumber && dev.serialNumber !== info.serialNumber) {
+        // Another physical terminal now answers at this address: push everybody to it, and ignore
+        // the events already stored in its memory.
+        this.log.warn(`🔁 ${dev.name}: boshqa terminal ulandi (${dev.serialNumber} → ${info.serialNumber}) — xodimlar qayta yuboriladi`);
+        update.boundAt = Date.now();
+        if (this.store.requestResync) this.store.requestResync(dev.id);
+      }
       try {
         const t = await client.getTime();
         if (t.date && !Number.isNaN(t.date.getTime())) {
           const skew = Math.round((t.date.getTime() - Date.now()) / 1000);
           update.clockSkewSec = skew;
           const recentlyFixed = Date.now() - (this.lastClockFix.get(dev.id) || 0) < 30 * 60 * 1000;
-          const usesNtp = /ntp/i.test(t.timeMode || '');
+          // NTP mode is left alone unless the clock is clearly wrong (e.g. no internet for NTP, 2020 after a power loss).
+          const usesNtp = /ntp/i.test(t.timeMode || '') && Math.abs(skew) < 5 * 60;
           if (Math.abs(skew) > CLOCK_TOLERANCE_SEC && this.store.settings.autoTimeSync !== false && !usesNtp && !recentlyFixed) {
             this.lastClockFix.set(dev.id, Date.now());
             const now = new Date();

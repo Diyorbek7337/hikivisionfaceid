@@ -106,7 +106,8 @@ function extractEvent(body, contentType) {
     }
     return null;
   }
-  return parseText(buf.toString('utf8'));
+  const obj = parseText(buf.toString('utf8'));
+  return obj && typeof obj === 'object' ? obj : null;
 }
 
 function num(v) {

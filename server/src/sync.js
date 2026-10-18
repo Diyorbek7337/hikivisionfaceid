@@ -6,9 +6,10 @@
  * bridge stores the version it last applied in employees/{id}.deviceSync.{deviceId}. Whenever they
  * differ, or the last attempt failed, the employee is pushed again.
  */
-const { explainError } = require('./isapi');
+const { explainError, isPermanentFaceError } = require('./isapi');
 
 const RETRY_MS = 60 * 1000;
+const MAX_RETRY_MS = 30 * 60 * 1000;
 
 function deviceUsable(d) {
   return d && d.ip && !d.disabled;
@@ -41,7 +42,13 @@ class SyncEngine {
     const s = emp.deviceSync && emp.deviceSync[dev.id];
     if (!s) return wanted(emp); // never pushed: only needed if the employee should be there
     if (s.version !== emp.version) return true;
-    if (s.status === 'error' && this.now() - (Number(s.at) || 0) > RETRY_MS) return true;
+    if (s.status === 'error') {
+      // A photo the terminal rejected will be rejected again: wait until the employee is edited.
+      if (s.permanent) return false;
+      // Other errors: retry after 1, 2, 4 … 30 minutes.
+      const wait = Math.min(RETRY_MS * 2 ** Math.max(0, (Number(s.attempts) || 1) - 1), MAX_RETRY_MS);
+      return this.now() - (Number(s.at) || 0) > wait;
+    }
     return false;
   }
 
@@ -90,14 +97,42 @@ class SyncEngine {
       let failedConnection = false;
       for (const emp of [...this.store.employees.values()]) {
         if (failedConnection) break;
+        if (!this.store.devices.has(dev.id)) break; // terminal deleted meanwhile
         if (!this.needsSync(emp, dev)) continue;
         const res = await this.syncOne(emp, dev);
         if (res && res.connection) failedConnection = true;
       }
-      if (!failedConnection && this.pendingResyncDone && this.pendingResyncDone[dev.id]) {
-        await this.store.updateDevice(dev.id, { resyncDoneFor: this.pendingResyncDone[dev.id] }).catch(() => {});
+      const resyncDone = this.pendingResyncDone && this.pendingResyncDone[dev.id];
+      if (!failedConnection && this.store.devices.has(dev.id) && (resyncDone || !dev.reconciledAt)) {
+        await this.reconcile(dev);
+      }
+      if (!failedConnection && resyncDone) {
+        await this.store.updateDevice(dev.id, { resyncDoneFor: resyncDone }).catch(() => {});
         delete this.pendingResyncDone[dev.id];
       }
+    }
+  }
+
+  /**
+   * Removes people stored on the terminal who are not active employees here (e.g. an earlier owner's
+   * staff, or someone deleted while the terminal was replaced). Runs when a terminal is first synced
+   * and on every "Qayta yuborish".
+   */
+  async reconcile(dev) {
+    const client = this.clientFor(dev);
+    try {
+      const keep = new Set([...this.store.employees.values()].filter(wanted).map((e) => String(e.employeeNo)));
+      const onTerminal = await client.listUserNumbers();
+      const extra = onTerminal.filter((no) => !keep.has(no));
+      for (const no of extra) await client.deleteUser(no);
+      if (extra.length) this.log.log(`🧹 ${dev.name}: tizimda yo'q ${extra.length} kishi terminaldan o'chirildi`);
+      await this.store.updateDevice(dev.id, { reconciledAt: this.now() });
+    } catch (err) {
+      if (err.status === 404 || /notSupport/i.test(`${err.subStatusCode} ${err.message}`)) {
+        await this.store.updateDevice(dev.id, { reconciledAt: this.now() }).catch(() => {});
+        return;
+      }
+      if (!err.blocked) this.log.warn(`⚠️  ${dev.name}: terminaldagi ro'yxatni tekshirib bo'lmadi: ${explainError(err)}`);
     }
   }
 
@@ -127,10 +162,15 @@ class SyncEngine {
       return { ok: true };
     } catch (err) {
       const message = explainError(err);
-      this.log.warn(`⚠️  ${emp.name} (${emp.employeeNo}) → ${dev.name}: ${message}`);
-      await this.store.setEmployeeSync(emp.id, dev.id, { version, status: 'error', message, at: this.now() })
-        .catch((e) => this.log.error('Firestore:', e.message));
-      return { ok: false, connection: !!(err.connection || err.status === 401) };
+      const connection = !!(err.connection || err.status === 401);
+      if (!connection) this.forced.delete(`${dev.id}:${emp.id}`); // tried once; normal retry rules apply now
+      const prev = emp.deviceSync && emp.deviceSync[dev.id];
+      const attempts = prev && prev.status === 'error' && prev.version === version ? (Number(prev.attempts) || 1) + 1 : 1;
+      const permanent = !connection && isPermanentFaceError(err);
+      if (!err.blocked) this.log.warn(`⚠️  ${emp.name} (${emp.employeeNo}) → ${dev.name}: ${message}`);
+      await this.store.setEmployeeSync(emp.id, dev.id, { version, status: 'error', message, at: this.now(), attempts, permanent })
+        .catch((e) => this.log.error('Baza:', e.message));
+      return { ok: false, connection };
     }
   }
 }

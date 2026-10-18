@@ -87,6 +87,11 @@ class IsapiClient {
    * fresh challenge with an unauthenticated request. Basic auth is used only when the terminal asks for it.
    */
   request(method, uri, opts = {}) {
+    // After the terminal rejected our login, stop trying for a while: Hikvision locks the computer out
+    // after a few failures. The breaker is per client; changing the login/password creates a new client.
+    if (this.authBlockedUntil && Date.now() < this.authBlockedUntil) {
+      return Promise.reject(Object.assign(new IsapiError(this.authBlockedMessage, { status: 401 }), { blocked: true }));
+    }
     // One request at a time per terminal: digest nonce counters must arrive in order.
     const run = this.queue.then(() => this.requestNow(method, uri, opts));
     this.queue = run.catch(() => {});
@@ -127,7 +132,10 @@ class IsapiClient {
     const text = res.bodyUsed ? consumedText : await res.text();
     if (res.status === 401) {
       this.challenge = null;
-      throw IsapiClient.authError(res, text);
+      const e = IsapiClient.authError(res, text);
+      this.authBlockedUntil = Date.now() + Math.max(5 * 60, e.unlockSeconds || 0) * 1000;
+      this.authBlockedMessage = e.message;
+      throw e;
     }
     return { status: res.status, text, contentType: res.headers.get('content-type') || '' };
   }
@@ -145,6 +153,7 @@ class IsapiClient {
       msg = 'Login yoki parol noto\'g\'ri (401)';
     }
     const e = new IsapiError(msg, { status: 401 });
+    e.unlockSeconds = /lock/i.test(flat) ? (unlock || 1800) : 0;
     e.detail = `WWW-Authenticate: ${res.headers.get('www-authenticate') || '(yo\'q)'}; javob: ${String(text).slice(0, 300)}`;
     return e;
   }
@@ -264,6 +273,23 @@ class IsapiClient {
     }
   }
 
+  /** All employee numbers stored on the terminal (paged UserInfo search). */
+  async listUserNumbers() {
+    const out = [];
+    const searchID = crypto.randomUUID();
+    for (let position = 0, page = 0; page < 200; page += 1) {
+      const d = await this.json('POST', '/ISAPI/AccessControl/UserInfo/Search?format=json', {
+        UserInfoSearchCond: { searchID, searchResultPosition: position, maxResults: 30 },
+      });
+      const r = d.UserInfoSearch || {};
+      const list = Array.isArray(r.UserInfo) ? r.UserInfo : (r.UserInfo ? [r.UserInfo] : []);
+      for (const u of list) if (u.employeeNo != null) out.push(String(u.employeeNo));
+      position += list.length;
+      if (String(r.responseStatusStrg || '').toUpperCase() !== 'MORE' || !list.length) break;
+    }
+    return out;
+  }
+
   async countUsers() {
     const d = await this.json('GET', '/ISAPI/AccessControl/UserInfo/Count?format=json');
     return Number(d.UserInfoCount && d.UserInfoCount.userNumber) || 0;
@@ -324,15 +350,22 @@ class IsapiClient {
 }
 
 /** Human readable explanation for common terminal error codes. */
+/** Face photo problems that retrying the same photo will not fix. */
+function isPermanentFaceError(err) {
+  const s = `${err && err.subStatusCode} ${err && err.message}`;
+  return /faceQuality|lowScore|noFace|FaceImage|face.*(fail|invalid)|modelingFailed|picture|pictureSize|tooLarge|badImage|imageFormat/i.test(s);
+}
+
+/** Human readable explanation for common terminal error codes. */
 function explainError(err) {
   const s = `${err && err.subStatusCode} ${err && err.message}`;
-  if (/faceQuality|lowScore|noFace|FaceImage|face.*(fail|invalid)|modelingFailed|picture/i.test(s)) {
+  if (/pictureSize|tooLarge|over.*size/i.test(s)) return 'Rasm hajmi terminal uchun juda katta';
+  if (/faceQuality|lowScore|noFace|FaceImage|face.*(fail|invalid)|modelingFailed|picture|badImage/i.test(s)) {
     return 'Rasmda yuz aniq ko\'rinmayapti — yorug\', to\'g\'ridan olingan boshqa rasm yuklang';
   }
-  if (/pictureSize|tooLarge|over.*size/i.test(s)) return 'Rasm hajmi juda katta';
   if (/blokladi/i.test(s)) return err.message;
   if (/401|parol/i.test(s)) return 'Terminal login yoki paroli noto\'g\'ri';
   return (err && err.message) || String(err);
 }
 
-module.exports = { IsapiClient, IsapiError, explainError, parseChallenge };
+module.exports = { IsapiClient, IsapiError, explainError, isPermanentFaceError, parseChallenge };

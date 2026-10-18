@@ -58,20 +58,29 @@ class EventPoller {
   }
 
   async pollOne(dev) {
-    const st = this.state.get(dev.id) || { minors: [0] };
-    this.state.set(dev.id, st);
-    if (st.unsupported) return;
+    // State is per terminal address/login: changing them in the web app starts fresh.
+    const key = [dev.id, dev.ip, dev.port, dev.username, dev.password].join('|');
+    let st = this.state.get(dev.id);
+    if (!st || st.key !== key) {
+      st = { key, minors: [0], badMinor: 0 };
+      this.state.set(dev.id, st);
+    }
+    // "not supported" may have been a wrong device answering: look again every 10 minutes
+    if (st.unsupported && Date.now() - st.unsupported < 10 * 60 * 1000) return;
     const client = this.clientFor(dev);
     const now = Date.now();
     // Never read events from before the terminal was added here: its log may hold an earlier owner's
     // events whose employee numbers would match our new employees.
     const added = dev.createdAt ? new Date(String(dev.createdAt).replace(' ', 'T').replace(/(\d)$/, '$1Z')).getTime() : now;
-    const floor = Math.max(Number.isFinite(added) ? added : now, now - 7 * 24 * 3600 * 1000);
+    // boundAt: when this record was pointed at the current physical terminal (set when it is replaced)
+    const bound = Math.max(Number.isFinite(added) ? added : now, Number(dev.boundAt) || 0);
+    const floor = Math.max(bound, now - 7 * 24 * 3600 * 1000);
     const cursor = Math.max(Number(dev.pollCursor) || floor, floor);
     const startTime = isoWithOffset(new Date(Math.max(cursor - OVERLAP_MS, floor)), this.tz);
     // A terminal whose clock runs ahead writes "future" times: search a day ahead so they are not missed.
     const endTime = isoWithOffset(new Date(now + 24 * 3600 * 1000), this.tz);
     let newest = cursor;
+    let failed = false;
     try {
       for (const minor of st.minors) {
         let position = 0;
@@ -79,14 +88,18 @@ class EventPoller {
           const r = await client.searchAcsEvents({ startTime, endTime, position, minor });
           for (const item of r.list) {
             const ev = normalizeAcsInfo(item);
-            // never move the cursor past "now", or a wrong terminal clock would hide later events
-            if (ev.time) newest = Math.max(newest, Math.min(ev.time.getTime(), now));
-            await this.processor.process(dev, ev);
+            const result = await this.processor.process(dev, ev);
+            if (result === 'error') failed = true;
+            // never move the cursor past "now" (a wrong terminal clock would hide later events),
+            // nor past an event we could not store (it is retried on the next poll)
+            if (ev.time && !failed) newest = Math.max(newest, Math.min(ev.time.getTime(), now));
           }
           position += r.list.length;
           if (r.status !== 'MORE' || !r.list.length) break;
         }
       }
+      st.badMinor = 0;
+      st.unsupported = 0;
       if (st.lastError) {
         this.log.log(`📥 ${dev.name}: eventlarni o'qish tiklandi`);
         st.lastError = null;
@@ -96,14 +109,16 @@ class EventPoller {
         await this.store.updateDevice(dev.id, { pollCursor: Math.max(newest, cursor), lastPollAt: now });
       }
     } catch (err) {
+      if (err.blocked || err.status === 401) return; // login problem: the monitor reports it, no extra attempts here
       const text = `${err.subStatusCode || ''} ${err.message}`;
-      if (st.minors[0] === 0 && /badParameters|invalid|minor/i.test(text) && !/ulanib|parol/i.test(text)) {
-        st.minors = [75, 76]; // firmware wants a concrete minor type
+      if (st.minors[0] === 0 && /badParameters|minor/i.test(text)) {
+        st.badMinor += 1;
+        if (st.badMinor >= 2) st.minors = [75, 76]; // firmware wants a concrete minor type
         return;
       }
       if (err.status === 404 || /notSupport/i.test(text)) {
-        st.unsupported = true;
-        this.log.warn(`⚠️  ${dev.name}: terminal eventlar jurnalini o'qishni qo'llamaydi — faqat HTTP Listening ishlatiladi`);
+        if (!st.unsupported) this.log.warn(`⚠️  ${dev.name}: terminal eventlar jurnalini o'qishni qo'llamaydi — faqat HTTP Listening ishlatiladi`);
+        st.unsupported = Date.now();
         return;
       }
       if (st.lastError !== err.message) {

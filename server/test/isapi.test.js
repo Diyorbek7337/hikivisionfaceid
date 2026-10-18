@@ -55,10 +55,21 @@ test('single-use nonces and parallel requests still work', async (t) => {
 test('lock-out is reported clearly', async (t) => {
   const term = await startFakeTerminal({ lockAfter: 2 });
   t.after(() => term.close());
+  // a fresh client each time (as if the program restarted) eventually hits the terminal's lock
+  const fresh = () => new IsapiClient({ host: '127.0.0.1', port: term.port, username: 'admin', password: 'nope' });
+  await assert.rejects(fresh().deviceInfo(), /parol/);
+  await assert.rejects(fresh().deviceInfo(), /parol/);
+  await assert.rejects(fresh().deviceInfo(), /blokladi \(~30 daqiqa\)/);
+});
+
+test('after a rejected login the client stops trying (no lock-out by repeated attempts)', async (t) => {
+  const term = await startFakeTerminal({ lockAfter: 3 });
+  t.after(() => term.close());
   const bad = new IsapiClient({ host: '127.0.0.1', port: term.port, username: 'admin', password: 'nope' });
-  await assert.rejects(bad.deviceInfo(), /parol/);
-  await assert.rejects(bad.deviceInfo(), /parol/);
-  await assert.rejects(bad.deviceInfo(), /blokladi \(~30 daqiqa\)/);
+  for (let i = 0; i < 10; i += 1) await assert.rejects(bad.deviceInfo(), /parol/);
+  // only one real login attempt reached the terminal, so it is not locked:
+  const good = new IsapiClient({ host: '127.0.0.1', port: term.port, username: 'admin', password: 'secret' });
+  assert.equal((await good.deviceInfo()).model, 'DS-K1T331W');
 });
 
 test('never sends Basic credentials unless the terminal asks for Basic', async (t) => {

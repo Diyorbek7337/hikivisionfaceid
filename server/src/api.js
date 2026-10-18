@@ -74,7 +74,7 @@ function decodeImage(b64) {
   if (!b64) return null;
   const buf = Buffer.from(String(b64).replace(/^data:image\/\w+;base64,/, ''), 'base64');
   if (buf.length < 1000 || buf[0] !== 0xff || buf[1] !== 0xd8) throw bad('Rasm JPEG formatida bo\'lishi kerak');
-  if (buf.length > 400 * 1024) throw bad('Rasm juda katta (400 KB dan oshmasin)');
+  if (buf.length > 200 * 1024) throw bad('Rasm juda katta (200 KB dan oshmasin) — sahifani yangilab, qayta yuklang');
   return buf;
 }
 
