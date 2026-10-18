@@ -32,6 +32,8 @@ const { createApi } = require('./api');
 const { createAuth } = require('./auth');
 const { createBackup } = require('./backup');
 const { createTelegram } = require('./telegram');
+const { createTgApi } = require('./tgapp');
+const { createBotHandler } = require('./bot');
 const { startDailyReport } = require('./report');
 const { lanAddresses } = require('./net');
 const { startListening } = require('./listen');
@@ -44,7 +46,8 @@ const store = new LocalStore(db);
 // Session secret: generated once and kept next to the database.
 const secretFile = path.join(cfg.dataDir, '.session_secret');
 if (!fs.existsSync(secretFile)) fs.writeFileSync(secretFile, crypto.randomBytes(32).toString('hex'), { mode: 0o600 });
-const auth = createAuth({ store, secret: fs.readFileSync(secretFile, 'utf8').trim() });
+const secret = fs.readFileSync(secretFile, 'utf8').trim();
+const auth = createAuth({ store, secret });
 
 const clients = new Map();
 function clientFor(dev) {
@@ -69,7 +72,8 @@ store.on('devices', () => {
 const api = createApi({ store, auth, cfg, sync, backup, clientFor, version: pkg.version });
 const processor = createEventProcessor({ store, tz: cfg.timezone, telegram });
 const poller = new EventPoller({ store, clientFor, processor, tz: cfg.timezone });
-const app = createServer({ store, cfg, telegram, api, processor });
+const tgApi = createTgApi({ store, cfg, secret });
+const app = createServer({ store, cfg, telegram, api, tgApi, processor });
 
 startListening(app, cfg).then((started) => {
   if (started.alreadyRunning) {
@@ -116,7 +120,8 @@ startListening(app, cfg).then((started) => {
 
   if (telegram.enabled) {
     console.log('🤖 Telegram bot yoqilgan');
-    telegram.startPolling();
+    telegram.startPolling(createBotHandler({ store, cfg, telegram }));
+    if (cfg.publicUrl) console.log(`📱 Telegram mini ilova: ${cfg.publicUrl}/tg/`);
     startDailyReport({ store, telegram, tz: cfg.timezone });
   }
 }).catch((err) => {

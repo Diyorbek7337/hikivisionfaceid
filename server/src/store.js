@@ -16,6 +16,7 @@ const DEFAULT_SETTINGS = {
   dailyReportEnabled: true,
   organizationName: '',
   dailyReportSentFor: '',
+  telegramViewers: [], // [{ id, name }] who may open the Telegram mini app (read-only)
   accessPlansVersion: 0, // bumped when door entry schedules change; terminals store the version they have
 };
 

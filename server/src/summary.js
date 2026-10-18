@@ -80,6 +80,7 @@ function periodSummary(store, from, to, tz, now = new Date()) {
       flexible: store.isFlexible(emp),
       payType: emp.payType, payRate: emp.payRate,
       workDays: 0, presentDays: 0, absentDays: 0, lateCount: 0, lateMinutes: 0, earlyCount: 0, workedMinutes: 0, pay: 0, openSessions: 0,
+      absentDates: [], lateDates: [],
     };
     const recByDate = new Map(recs.map((r) => [r.date, r]));
     const start = [from, employeeStartDate(emp, tz)].sort()[1];
@@ -90,17 +91,22 @@ function periodSummary(store, from, to, tz, now = new Date()) {
         const came = !!(r && (r.checkIn || r.checkOut));
         const exp = expectedAtWork(emp, d, store.getWorkHoursSync(emp, d), ctx);
         if (exp === 'yes' || (came && exp === 'pending')) s.workDays += 1;
-        if (exp === 'yes' && !came) s.absentDays += 1;
+        if (exp === 'yes' && !came) { s.absentDays += 1; s.absentDates.push(d); }
       }
     }
     for (const r of recs) {
       if (r.checkIn || r.checkOut) s.presentDays += 1;
-      if (r.lateMinutes > 0) { s.lateCount += 1; s.lateMinutes += r.lateMinutes; }
+      if (r.lateMinutes > 0) {
+        s.lateCount += 1;
+        s.lateMinutes += r.lateMinutes;
+        s.lateDates.push({ date: r.date, minutes: r.lateMinutes, checkIn: r.checkIn });
+      }
       if (r.earlyMinutes > 0) s.earlyCount += 1;
       s.workedMinutes += r.workedMinutes || 0;
       s.openSessions += r.openSessions || 0;
       s.pay += salaryFor(r);
     }
+    s.lateDates.sort((a, b) => a.date.localeCompare(b.date));
     out.push(s);
   }
   out.sort((a, b) => a.name.localeCompare(b.name));

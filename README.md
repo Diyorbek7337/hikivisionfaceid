@@ -184,6 +184,40 @@ tok o'chganda ochiladigan turda bo'lsin.
 4. Tizimni qayta ishga tushiring. **Sozlamalar** sahifasida kunlik hisobot vaqtini tanlang (standart 09:30).
 5. Xodimlarga ham xabar borsin desangiz: xodim botga `/start` yozadi → chat ID sini xodim kartasiga kiritasiz.
 
+Rahbar/HR uchun bot buyruqlari: `/bugun`, `/kelmaganlar`, `/kechikkanlar`.
+
+## 5.1. Telefondan ko'rish (Telegram mini ilova)
+
+Rahbar yoki HR istalgan joydan, Telegram ichida davomatni ko'radi: **Kunlik** (kim keldi / kechikdi /
+kelmadi / ichkarida, istalgan kun) va **Hisobot** (shu hafta, shu oy, o'tgan oy: kim necha kun kelmagan va
+necha marta kechikkan — xodimni bossangiz sanalari chiqadi). Telefonda kartochkalar, kompyuterdagi Telegram'da
+jadval ko'rinishida. **Faqat ko'rish** — hech narsani o'zgartirib bo'lmaydi.
+
+Ma'lumotlar maktab kompyuterida qoladi. Telegram ilovani ochishi uchun kompyuterga internetdan **HTTPS manzil**
+kerak — buni bepul **Tailscale Funnel** beradi. Bu manzil orqali **faqat mini ilova** ochiladi: admin panel,
+terminallar va boshqa hamma narsa faqat maktab tarmog'ida qoladi.
+
+1. Server kompyuterga **Tailscale** o'rnating: https://tailscale.com/download → Windows → o'rnatib, akkaunt bilan kiring.
+2. **Administrator sifatida** cmd oching va yozing:
+   ```
+   tailscale funnel --bg 3001
+   ```
+   (3001 — tizim porti.) Birinchi marta brauzerda HTTPS va Funnel'ni yoqish so'raladi — tasdiqlang.
+   Oxirida manzil chiqadi, masalan `https://maktab-pc.tail1234.ts.net`.
+3. `server\.env` ga yozing (BOT_TOKEN va ADMIN_TELEGRAM_IDS 5-bo'limdagidek):
+   ```
+   PUBLIC_URL=https://maktab-pc.tail1234.ts.net
+   ```
+   va tizimni qayta ishga tushiring. Qora oynada `📱 Telegram mini ilova: …/tg/` chiqadi.
+4. Rahbar/HR botga `/start` yozadi → bot ID raqamini aytadi → siz uni **Sozlamalar → 📱 Telefondan ko'ruvchilar** ga qo'shasiz.
+5. U yana `/start` yozadi → **"📊 Davomatni ochish"** tugmasi chiqadi (chap pastdagi "Davomat" menyusi ham).
+
+Kimnidir ro'yxatdan olib tashlasangiz, ruxsati darhol yopiladi.
+
+**Sizga (administratorga) masofadan to'liq kirish:** telefoningiz yoki noutbukingizga ham Tailscale o'rnatib,
+xuddi shu akkaunt bilan kiring. Keyin `http://<server kompyuterning 100.x.x.x manzili>:3001` ochiladi — maktabdagidek
+to'liq admin panel (bu manzil faqat sizning qurilmalaringizga ko'rinadi). Server manzilini Tailscale ilovasida ko'rasiz.
+
 ---
 
 ## 6. Zaxira nusxa va yangilash

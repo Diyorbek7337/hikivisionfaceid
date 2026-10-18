@@ -27,6 +27,8 @@ export default function AppShell({ children }) {
   const [error, setError] = useState('');
   const [expired, setExpired] = useState(false);
   const pathname = usePathname();
+  // The Telegram mini app (/tg) has its own login and layout.
+  const miniApp = (pathname || '').startsWith('/tg');
 
   const refresh = useCallback(async () => {
     try {
@@ -44,13 +46,15 @@ export default function AppShell({ children }) {
   }, []);
 
   useEffect(() => {
+    if (miniApp) return undefined;
     refresh();
     // Session ended while working: show the login on top of the page so typed data is not lost.
     const onUnauthorized = () => setExpired(true);
     window.addEventListener('davomat:unauthorized', onUnauthorized);
     return () => window.removeEventListener('davomat:unauthorized', onUnauthorized);
-  }, [refresh]);
+  }, [refresh, miniApp]);
 
+  if (miniApp) return children;
   if (error) {
     return <main className="center"><div className="card"><h1>Xato</h1><p className="bad">{error}</p>
       <button onClick={refresh}>Qayta urinish</button></div></main>;

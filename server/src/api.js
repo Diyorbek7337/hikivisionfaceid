@@ -147,6 +147,7 @@ function createApi({ store, auth, cfg, sync, backup, clientFor, version }) {
     res.json({
       version, ips: lanAddresses(), port: cfg.port, hostname: os.hostname(), timezone: tz,
       today: localDate(new Date(), tz), settings: store.settings, telegram: !!cfg.botToken,
+      publicUrl: cfg.publicUrl || '', adminTelegramIds: cfg.adminTelegramIds || [],
     });
   });
 
@@ -164,6 +165,17 @@ function createApi({ store, auth, cfg, sync, backup, clientFor, version }) {
       patch.dailyReportTime = b.dailyReportTime;
     }
     if (b.organizationName !== undefined) patch.organizationName = String(b.organizationName).trim().slice(0, 100);
+    if (b.telegramViewers !== undefined) {
+      if (!Array.isArray(b.telegramViewers) || b.telegramViewers.length > 50) throw bad('Ro\'yxat noto\'g\'ri');
+      const seen = new Set();
+      patch.telegramViewers = b.telegramViewers.map((v) => {
+        const id = String((v && v.id) || '').trim();
+        if (!/^\d{3,15}$/.test(id)) throw bad(`Telegram ID faqat raqam bo'ladi: "${id}"`);
+        if (seen.has(id)) throw bad(`Bu ID ikki marta yozilgan: ${id}`);
+        seen.add(id);
+        return { id, name: String((v && v.name) || '').trim().slice(0, 60) };
+      });
+    }
     res.json(store.saveSettings(patch));
   });
 

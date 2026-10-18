@@ -15,12 +15,16 @@ export default function Reports() {
   const [query, setQuery] = useState(`from=${today.slice(0, 8)}01&to=${today}`);
   const [employeeId, setEmployeeId] = useState('');
   const [editing, setEditing] = useState(null);
+  const [openRow, setOpenRow] = useState(null);
+  const [only, setOnly] = useState('');
   const { data, error, loading, reload } = useApi(`/report?${query}`);
   const { data: employees } = useApi('/employees');
 
   const records = useMemo(() => (data ? data.records : [])
     .filter((r) => !employeeId || String(r.employeeId) === employeeId), [data, employeeId]);
-  const summary = (data ? data.summary : []).filter((s) => !employeeId || String(s.employeeId) === employeeId);
+  const summary = (data ? data.summary : []).filter((s) => !employeeId || String(s.employeeId) === employeeId)
+    .filter((s) => !only || (only === 'absent' ? s.absentDays > 0 : s.lateCount > 0))
+    .sort((a, b) => (only === 'absent' ? b.absentDays - a.absentDays : only === 'late' ? b.lateCount - a.lateCount : 0));
   const showPay = summary.some((s) => s.pay > 0);
   const openTotal = records.reduce((n, r) => n + openCount(r, today), 0);
 
@@ -76,18 +80,37 @@ export default function Reports() {
       </div>
 
       <div className="card">
-        <h2>Jami {data && <span className="muted">({data.from} — {data.to})</span>}</h2>
+        <div className="row between">
+          <h2 style={{ margin: 0 }}>Jami {data && <span className="muted">({data.from} — {data.to})</span>}</h2>
+          <div className="row">
+            {[['', 'Hammasi'], ['absent', 'Faqat kelmaganlar'], ['late', 'Faqat kechikkanlar']].map(([k, label]) => (
+              <button key={k} type="button" className={`small ${only === k ? '' : 'secondary'}`} onClick={() => setOnly(k)}>{label}</button>
+            ))}
+          </div>
+        </div>
         <table>
           <thead><tr><th>Xodim</th><th>Ish kunlari</th><th>Kelgan</th><th>Kelmagan</th><th>Kechikishlar</th><th>Jami kechikish</th><th>Erta ketish</th><th>Ishlagan</th>{showPay && <th>Summa (so&apos;m)</th>}</tr></thead>
           <tbody>
-            {summary.map((s) => (
-              <tr key={s.employeeId}>
-                <td>{s.name}</td><td>{s.flexible ? <span className="muted" title="Erkin jadval">erkin</span> : s.workDays}</td><td>{s.presentDays}</td>
+            {summary.map((s) => [
+              <tr key={s.employeeId} className="clickable" onClick={() => setOpenRow(openRow === s.employeeId ? null : s.employeeId)}
+                title="Bosing: kelmagan kunlar va kechikishlar sanalari">
+                <td>{(s.absentDays > 0 || s.lateCount > 0) && <span className="muted">{openRow === s.employeeId ? '▾ ' : '▸ '}</span>}{s.name}</td><td>{s.flexible ? <span className="muted" title="Erkin jadval">erkin</span> : s.workDays}</td><td>{s.presentDays}</td>
                 <td className={s.absentDays ? 'bad' : ''}>{s.flexible && !s.absentDays ? <span className="muted">—</span> : s.absentDays}</td>
                 <td className={s.lateCount ? 'warn' : ''}>{s.lateCount}</td><td>{formatDuration(s.lateMinutes)}</td>
                 <td>{s.earlyCount}</td><td>{formatDuration(s.workedMinutes)}</td>{showPay && <td title={rateText(s.payType, s.payRate, money)}>{money(s.pay)}</td>}
-              </tr>
-            ))}
+              </tr>,
+              openRow === s.employeeId && (
+                <tr key={`${s.employeeId}-d`}><td colSpan={9}>
+                  <div className="grid">
+                    <div><b className="bad">Kelmagan kunlar ({s.absentDays})</b><br />
+                      {s.absentDates.length ? s.absentDates.join(', ') : <span className="muted">yo&apos;q</span>}</div>
+                    <div><b className="warn">Kechikishlar ({s.lateCount})</b><br />
+                      {s.lateDates.length ? s.lateDates.map((l) => `${l.date} ${localTime(l.checkIn)} (${formatDuration(l.minutes)})`).join(', ')
+                        : <span className="muted">yo&apos;q</span>}</div>
+                  </div>
+                </td></tr>
+              ),
+            ])}
             {data && !summary.length && <tr><td colSpan={9} className="muted">Ma&apos;lumot yo&apos;q</td></tr>}
           </tbody>
         </table>

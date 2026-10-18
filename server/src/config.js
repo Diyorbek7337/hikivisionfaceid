@@ -16,6 +16,9 @@ function loadConfig(env = process.env) {
     webDir: resolve(env.WEB_DIR || '../web/out'),
     botToken: env.BOT_TOKEN || '',
     adminTelegramIds: list(env.ADMIN_TELEGRAM_IDS),
+    // Public HTTPS address of this server (Tailscale Funnel / Cloudflare Tunnel) for the Telegram mini app.
+    // Only the mini app is reachable through it; the admin panel stays inside the local network.
+    publicUrl: String(env.PUBLIC_URL || '').trim().replace(/\/+$/, ''),
     // How often terminals are checked (online status, clock) and failed syncs retried.
     deviceCheckSeconds: Number(env.DEVICE_CHECK_SECONDS) || 60,
   };

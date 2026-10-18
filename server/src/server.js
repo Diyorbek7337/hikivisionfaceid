@@ -1,4 +1,5 @@
 'use strict';
+const { publicGate } = require('./tgapp');
 const fs = require('node:fs');
 const path = require('node:path');
 const express = require('express');
@@ -100,9 +101,11 @@ function createPushHandler({ store, processor, log = console, samplePath = null 
   }
 }
 
-function createServer({ store, cfg, telegram, api, processor, log = console }) {
+function createServer({ store, cfg, telegram, api, tgApi, processor, log = console }) {
   const app = express();
   app.disable('x-powered-by');
+  // Through the public tunnel only the Telegram mini app is reachable.
+  app.use(publicGate(cfg));
 
   app.get('/health', (req, res) => res.json({ status: 'OK', service: 'davomat', time: new Date().toISOString() }));
 
@@ -121,6 +124,7 @@ function createServer({ store, cfg, telegram, api, processor, log = console }) {
   // Terminal configured with an empty/other URL: identify it by IP.
   app.post('/ISAPI/*', guard, raw, push);
 
+  if (tgApi) app.use('/api/tg', tgApi);
   if (api) app.use('/api', api);
   // A terminal configured with some other URL path: accept the push anyway and identify it by IP.
   app.post(/^\/(?!api\/).*/, guard, raw, push);

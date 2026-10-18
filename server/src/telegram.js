@@ -3,7 +3,7 @@
 
 function createTelegram({ token, adminIds = [] }) {
   if (!token) {
-    return { enabled: false, async send() {}, async notifyAdmins() {}, startPolling() {}, stop() {} };
+    return { enabled: false, async send() {}, async notifyAdmins() {}, startPolling() {}, stop() {}, async call() {} };
   }
   const api = (method, body) => fetch(`https://api.telegram.org/bot${token}/${method}`, {
     method: 'POST',
@@ -17,8 +17,8 @@ function createTelegram({ token, adminIds = [] }) {
 
   let running = false;
 
-  async function send(chatId, text) {
-    return api('sendMessage', { chat_id: chatId, text, parse_mode: 'HTML', disable_web_page_preview: true });
+  async function send(chatId, text, extra = {}) {
+    return api('sendMessage', { chat_id: chatId, text, parse_mode: 'HTML', disable_web_page_preview: true, ...extra });
   }
 
   async function notifyAdmins(text) {
@@ -27,8 +27,11 @@ function createTelegram({ token, adminIds = [] }) {
     }
   }
 
-  /** Replies to /start with the user's chat ID so the admin can paste it into the employee card. */
-  async function startPolling() {
+  /**
+   * Answers messages. `handle(msg)` may return { text, extra } (e.g. the mini app button for viewers);
+   * otherwise /start and /id reply with the user's chat ID so the admin can paste it into the employee card.
+   */
+  async function startPolling(handle) {
     running = true;
     let offset = 0;
     while (running) {
@@ -38,7 +41,13 @@ function createTelegram({ token, adminIds = [] }) {
           offset = u.update_id + 1;
           const msg = u.message;
           if (!msg || !msg.chat || typeof msg.text !== 'string') continue;
-          if (msg.text.startsWith('/start') || msg.text.startsWith('/id')) {
+          let reply = null;
+          if (handle) {
+            try { reply = await handle(msg); } catch (e) { console.error('Telegram:', e.message); }
+          }
+          if (reply) {
+            await send(msg.chat.id, reply.text, reply.extra).catch((e) => console.error('Telegram:', e.message));
+          } else if (msg.text.startsWith('/start') || msg.text.startsWith('/id')) {
             await send(msg.chat.id, `Assalomu alaykum!\n\nSizning chat ID: <code>${msg.chat.id}</code>\n\nShu raqamni administratorga yuboring — u sizni davomat tizimiga ulaydi.`)
               .catch((e) => console.error('Telegram:', e.message));
           }
@@ -50,7 +59,7 @@ function createTelegram({ token, adminIds = [] }) {
     }
   }
 
-  return { enabled: true, send, notifyAdmins, startPolling, stop() { running = false; } };
+  return { enabled: true, send, notifyAdmins, startPolling, stop() { running = false; }, call: api };
 }
 
 module.exports = { createTelegram };

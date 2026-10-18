@@ -14,7 +14,9 @@ export default function Settings() {
     e.preventDefault();
     setError('');
     try {
-      await api('/settings', { method: 'PUT', body: form });
+      // the phone viewers list is saved by its own card
+      const { telegramViewers: _v, ...body } = form;
+      await api('/settings', { method: 'PUT', body });
       setMsg('Saqlandi');
       reloadStatus();
       setTimeout(() => setMsg(''), 2000);
@@ -47,6 +49,8 @@ export default function Settings() {
         </div>
         <div className="row" style={{ marginTop: 12 }}><button>Saqlash</button> <span className="ok">{msg}</span></div>
       </form>
+
+      <Viewers status={status} reloadStatus={reloadStatus} />
 
       <Users me={user} />
 
@@ -129,6 +133,61 @@ function Users({ me }) {
         <label>Login<input value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} required /></label>
         <label>Ism<input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></label>
         <label>Parol<input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} autoComplete="new-password" required /></label>
+        <button>+ Qo&apos;shish</button>
+      </form>
+    </div>
+  );
+}
+
+/** Telegram users who may open the read-only mini app (director, HR). */
+function Viewers({ status, reloadStatus }) {
+  const list = status.settings.telegramViewers || [];
+  const [form, setForm] = useState({ id: '', name: '' });
+  const [error, setError] = useState('');
+  async function saveList(next) {
+    setError('');
+    try {
+      await api('/settings', { method: 'PUT', body: { telegramViewers: next } });
+      reloadStatus();
+      return true;
+    } catch (err) {
+      setError(err.message);
+      return false;
+    }
+  }
+  async function add(e) {
+    e.preventDefault();
+    if (await saveList([...list, { id: form.id.trim(), name: form.name.trim() }])) setForm({ id: '', name: '' });
+  }
+  return (
+    <div className="card">
+      <h2>📱 Telefondan ko&apos;ruvchilar (Telegram)</h2>
+      <p className="muted">Rahbar yoki HR davomatni Telegram bot ichidagi ilovada ko&apos;radi (faqat ko&apos;rish — hech narsani o&apos;zgartira olmaydi).
+        Odam botga <code>/start</code> yozsa, bot uning ID raqamini aytadi — shu raqamni bu yerga kiriting.
+        <code>ADMIN_TELEGRAM_IDS</code> dagi adminlar avtomatik ruxsatga ega.</p>
+      {!status.telegram && <p className="warn">Telegram bot sozlanmagan (<code>BOT_TOKEN</code>).</p>}
+      {status.telegram && !status.publicUrl && (
+        <p className="warn">Ilova uchun serverning internet manzili (<code>PUBLIC_URL</code>) kiritilmagan — hozircha bot faqat /bugun, /kelmaganlar,
+          /kechikkanlar buyruqlariga javob beradi. Sozlash: README → &quot;Telefondan ko&apos;rish&quot;.</p>
+      )}
+      {status.publicUrl && <p className="hint">Ilova manzili: <code>{status.publicUrl}/tg/</code> — botda /start → &quot;📊 Davomatni ochish&quot;.</p>}
+      {error && <div className="flash error">{error}</div>}
+      <table>
+        <thead><tr><th>Telegram ID</th><th>Kim</th><th></th></tr></thead>
+        <tbody>
+          {(status.adminTelegramIds || []).map((id) => <tr key={`a${id}`}><td><code>{id}</code></td><td className="muted">Administrator (.env)</td><td></td></tr>)}
+          {list.map((v) => (
+            <tr key={v.id}>
+              <td><code>{v.id}</code></td><td>{v.name}</td>
+              <td><button className="secondary small" onClick={() => confirm(`${v.name || v.id} ruxsatdan olib tashlansinmi?`) && saveList(list.filter((x) => x.id !== v.id))}>Olib tashlash</button></td>
+            </tr>
+          ))}
+          {!list.length && !(status.adminTelegramIds || []).length && <tr><td colSpan={3} className="muted">Hali hech kim yo&apos;q</td></tr>}
+        </tbody>
+      </table>
+      <form className="row" style={{ marginTop: 12 }} onSubmit={add}>
+        <label>Telegram ID<input value={form.id} onChange={(e) => setForm({ ...form, id: e.target.value })} inputMode="numeric" placeholder="123456789" required /></label>
+        <label>Kim<input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Direktor, HR…" maxLength={60} /></label>
         <button>+ Qo&apos;shish</button>
       </form>
     </div>
