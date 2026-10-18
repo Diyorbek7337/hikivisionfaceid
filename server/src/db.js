@@ -107,6 +107,15 @@ CREATE TABLE IF NOT EXISTS events (
 );
 CREATE INDEX IF NOT EXISTS events_received ON events (received_at);
 
+-- Door entry schedules written to the terminals as access plan templates (number = slot; 1 is the built-in "all day").
+CREATE TABLE IF NOT EXISTS access_profiles (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  slot INTEGER NOT NULL UNIQUE,
+  days TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -152,6 +161,8 @@ function migrate(db) {
   // The amount stays in hourly_rate (the column name is from older versions).
   if (!empCols.includes('pay_type')) db.exec("ALTER TABLE employees ADD COLUMN pay_type TEXT NOT NULL DEFAULT 'hourly'");
   if (!attCols.includes('pay_type')) db.exec("ALTER TABLE attendance ADD COLUMN pay_type TEXT NOT NULL DEFAULT 'hourly'");
+  // door entry schedule (access_profiles.id); NULL = any time
+  if (!empCols.includes('access_profile_id')) db.exec('ALTER TABLE employees ADD COLUMN access_profile_id INTEGER');
   if (!empCols.includes('personal_schedule')) db.exec('ALTER TABLE employees ADD COLUMN personal_schedule TEXT');
 }
 

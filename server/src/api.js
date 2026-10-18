@@ -8,6 +8,7 @@ const { localDate, localTime, parseHHMM, tzOffsetMinutes } = require('./time');
 const { computeStats, salaryFor } = require('./attendance');
 const { daySummary, periodSummary } = require('./summary');
 const { lanAddresses } = require('./net');
+const { explainError } = require('./isapi');
 
 class HttpError extends Error {
   constructor(status, message) { super(message); this.status = status; }
@@ -48,6 +49,7 @@ function cleanEmployee(b) {
     telegramChatId: String(b.telegramChatId || '').trim().slice(0, 20),
     scheduleId: b.scheduleId ? Number(b.scheduleId) : null,
     personalSchedule: b.personalSchedule ? cleanScheduleBody(b.personalSchedule) : null,
+    accessProfileId: b.accessProfileId ? Number(b.accessProfileId) : null,
     payType: ['hourly', 'daily', 'session'].includes(b.payType) ? b.payType : 'hourly',
     payRate: clampInt(b.payRate ?? b.hourlyRate, 0, 100000000), // hourlyRate: older clients
     active: b.active !== false,
@@ -97,7 +99,7 @@ function decodeImage(b64) {
   return buf;
 }
 
-function createApi({ store, auth, cfg, sync, backup, version }) {
+function createApi({ store, auth, cfg, sync, backup, clientFor, version }) {
   const api = express.Router();
   // Small bodies before login; larger ones (face photos, Excel import) only for logged-in users.
   const smallJson = express.json({ limit: '32kb' });
@@ -188,13 +190,47 @@ function createApi({ store, auth, cfg, sync, backup, version }) {
   });
   api.delete('/schedules/:id', (req, res) => { store.deleteSchedule(Number(req.params.id)); res.json({ ok: true }); });
 
+  // ---------- door entry schedules ----------
+  api.get('/access-profiles', (req, res) => {
+    const counts = new Map();
+    for (const e of store.employees.values()) if (!e.deleted && e.accessProfileId) counts.set(e.accessProfileId, (counts.get(e.accessProfileId) || 0) + 1);
+    res.json(store.listAccessProfiles().map((p) => ({ ...p, employees: counts.get(p.id) || 0 })));
+  });
+  function cleanAccessProfile(b) {
+    const name = String(b.name || '').trim().slice(0, 60);
+    if (!name) throw bad('Nomini kiriting');
+    const days = cleanDays(b.days);
+    if (!Object.values(days).some(Boolean)) throw bad('Kamida bitta kunni belgilang');
+    return { name, days };
+  }
+  api.post('/access-profiles', (req, res) => {
+    const id = store.saveAccessProfile(cleanAccessProfile(req.body));
+    sync.schedule();
+    res.json({ id });
+  });
+  api.put('/access-profiles/:id', (req, res) => {
+    if (!store.getAccessProfile(req.params.id)) throw new HttpError(404, 'Ruxsat jadvali topilmadi');
+    store.saveAccessProfile({ ...cleanAccessProfile(req.body), id: Number(req.params.id) });
+    sync.schedule();
+    res.json({ ok: true });
+  });
+  api.delete('/access-profiles/:id', (req, res) => {
+    store.deleteAccessProfile(Number(req.params.id));
+    sync.schedule();
+    res.json({ ok: true });
+  });
+  const checkAccessProfile = (e) => {
+    if (e.accessProfileId && !store.getAccessProfile(e.accessProfileId)) throw bad('Kirish ruxsati jadvali topilmadi');
+    return e;
+  };
+
   // ---------- employees ----------
   api.get('/employees', (req, res) => {
     res.json([...store.employees.values()].filter((e) => !e.deleted));
   });
 
   api.post('/employees', (req, res) => {
-    const e = cleanEmployee(req.body);
+    const e = checkAccessProfile(cleanEmployee(req.body));
     if (!req.body.allowDuplicate && [...store.employees.values()].some((x) => !x.deleted && nameKey(x.name) === nameKey(e.name))) {
       return res.status(409).json({ error: `"${e.name}" ismli xodim allaqachon bor`, duplicate: true });
     }
@@ -232,7 +268,7 @@ function createApi({ store, auth, cfg, sync, backup, version }) {
     const id = Number(req.params.id);
     const e = store.getEmployee(id);
     if (!e || e.deleted) throw new HttpError(404, 'Xodim topilmadi');
-    store.updateEmployee(id, cleanEmployee(req.body));
+    store.updateEmployee(id, checkAccessProfile(cleanEmployee(req.body)));
     res.json(store.getEmployee(id));
   });
 
@@ -300,8 +336,31 @@ function createApi({ store, auth, cfg, sync, backup, version }) {
     const d = cleanDevice(req.body, existing);
     assertUniqueAddress(d, existing.id);
     store.saveDevice({ ...d, id: existing.id });
+    // entry schedules apply to entrance terminals only: a changed direction means re-sending everyone
+    if (d.direction !== existing.direction && store.listAccessProfiles().length) store.requestResync(existing.id);
     res.json({ ok: true });
   });
+
+  /** Door control from the web app: open once, keep open, back to normal. Logged in "Eventlar". */
+  const DOOR = { open: 'door_open', alwaysOpen: 'door_always_open', close: 'door_normal' };
+  api.post('/devices/:id/door', wrap(async (req, res) => {
+    const dev = store.getDevice(req.params.id);
+    if (!dev) throw new HttpError(404, 'Terminal topilmadi');
+    const cmd = req.body.cmd;
+    if (!DOOR[cmd]) throw bad('Noma\'lum buyruq');
+    try {
+      await clientFor(dev).remoteDoor(cmd);
+    } catch (err) {
+      throw new HttpError(502, `Terminal buyruqni bajarmadi: ${explainError(err)}`);
+    }
+    await store.updateDevice(dev.id, { doorMode: cmd === 'alwaysOpen' ? 'alwaysOpen' : 'normal' });
+    const who = req.user.name || req.user.username;
+    await store.saveEvent(`door_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, {
+      deviceId: dev.id, deviceName: dev.name, time: new Date(), personName: who, action: DOOR[cmd],
+    });
+    console.log(`🚪 ${dev.name}: ${cmd === 'open' ? 'eshik ochildi' : cmd === 'alwaysOpen' ? 'eshik doimiy ochiq' : 'eshik odatiy holatda'} (${who})`);
+    res.json({ ok: true });
+  }));
   api.delete('/devices/:id', (req, res) => { store.deleteDevice(req.params.id); res.json({ ok: true }); });
   api.post('/devices/:id/resync', (req, res) => {
     if (!store.getDevice(req.params.id)) throw new HttpError(404, 'Terminal topilmadi');
@@ -425,11 +484,12 @@ function createApi({ store, auth, cfg, sync, backup, version }) {
   // eslint-disable-next-line no-unused-vars
   api.use((err, req, res, next) => {
     const status = err.status || (err.type === 'entity.too.large' ? 413 : 500);
-    if (status >= 500) console.error('API xato:', err);
+    const ours = err instanceof HttpError; // messages written for the user (e.g. "terminal did not respond")
+    if (status >= 500 && !ours) console.error('API xato:', err);
     let message = err.message;
     if (status === 413) message = 'Yuborilgan ma\'lumot juda katta';
     else if (status === 400 && err.type === 'entity.parse.failed') message = 'Noto\'g\'ri so\'rov';
-    else if (status >= 500) message = 'Serverda xato yuz berdi. Qora oynadagi xabarni tekshiring.';
+    else if (status >= 500 && !ours) message = 'Serverda xato yuz berdi. Qora oynadagi xabarni tekshiring.';
     res.status(status).json({ error: message });
   });
 

@@ -48,7 +48,10 @@ function startFakeTerminal({ username = 'admin', password = 'secret', faceError 
   let nonce = crypto.randomBytes(8).toString('hex');
   const usedNonces = new Set();
   let failures = 0;
-  const state = { users: new Map(), faces: new Map(), requests: [], time: '2020-01-01T00:00:00+05:00', setTimeBody: null, events: [] };
+  const state = {
+    users: new Map(), faces: new Map(), requests: [], time: '2020-01-01T00:00:00+05:00', setTimeBody: null, events: [],
+    weekPlans: new Map(), templates: new Map(), doorCommands: [],
+  };
 
   function authorized(req) {
     const h = req.headers.authorization || '';
@@ -148,6 +151,15 @@ function startFakeTerminal({ username = 'admin', password = 'secret', faceError 
       if (url.startsWith('/ISAPI/Intelligent/FDLib/FDSearch/Delete')) {
         for (const x of JSON.parse(body).FPID) state.faces.delete(x.value);
         return ok(res);
+      }
+      let m = /^\/ISAPI\/AccessControl\/UserRightWeekPlanCfg\/(\d+)/.exec(url);
+      if (m && req.method === 'PUT') { state.weekPlans.set(Number(m[1]), JSON.parse(body).UserRightWeekPlanCfg); return ok(res); }
+      m = /^\/ISAPI\/AccessControl\/UserRightPlanTemplate\/(\d+)/.exec(url);
+      if (m && req.method === 'PUT') { state.templates.set(Number(m[1]), JSON.parse(body).UserRightPlanTemplate); return ok(res); }
+      m = /^\/ISAPI\/AccessControl\/RemoteControl\/door\/(\d+)/.exec(url);
+      if (m && req.method === 'PUT') {
+        state.doorCommands.push(/<cmd>(\w+)<\/cmd>/.exec(body.toString())[1]);
+        return res.end('<ResponseStatus><statusCode>1</statusCode><statusString>OK</statusString></ResponseStatus>');
       }
       res.statusCode = 404;
       return res.end('{"statusCode":4,"subStatusCode":"notSupport"}');

@@ -66,7 +66,7 @@ store.on('devices', () => {
   monitor.checkAll().then(() => sync.schedule()).catch((e) => console.error(e));
 });
 
-const api = createApi({ store, auth, cfg, sync, backup, version: pkg.version });
+const api = createApi({ store, auth, cfg, sync, backup, clientFor, version: pkg.version });
 const processor = createEventProcessor({ store, tz: cfg.timezone, telegram });
 const poller = new EventPoller({ store, clientFor, processor, tz: cfg.timezone });
 const app = createServer({ store, cfg, telegram, api, processor });

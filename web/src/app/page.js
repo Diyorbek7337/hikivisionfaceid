@@ -5,6 +5,7 @@ import { useApi } from '@/lib/api';
 import { localTime, formatDuration, normText } from '@/lib/time';
 import { DeviceStatus, ErrorBox } from '@/components/ui';
 import { SessionList } from '@/components/Sessions';
+import DoorButtons from '@/components/DoorButtons';
 
 const STATUS = {
   present: <span className="pill ok">Keldi</span>,
@@ -74,10 +75,15 @@ export default function Dashboard() {
       <div className="card">
         <h2>Terminallar</h2>
         <table>
-          <thead><tr><th>Nomi</th><th>IP</th><th>Holat</th></tr></thead>
+          <thead><tr><th>Nomi</th><th className="hide-sm">IP</th><th>Holat</th><th>Eshik</th></tr></thead>
           <tbody>
-            {data.devices.map((d) => <tr key={d.id}><td>{d.name}</td><td>{d.ip}</td><td><DeviceStatus device={d} /></td></tr>)}
-            {!data.devices.length && <tr><td colSpan={3} className="muted">Terminal qo&apos;shilmagan. <Link href="/devices/">Terminal qo&apos;shish</Link></td></tr>}
+            {data.devices.map((d) => (
+              <tr key={d.id}>
+                <td>{d.name}</td><td className="hide-sm">{d.ip}</td><td><DeviceStatus device={d} /></td>
+                <td>{d.doorMode === 'alwaysOpen' ? <span className="pill warn" title="Terminallar sahifasida &quot;Odatiy holat&quot;">doimiy ochiq</span> : <DoorButtons device={d} compact />}</td>
+              </tr>
+            ))}
+            {!data.devices.length && <tr><td colSpan={4} className="muted">Terminal qo&apos;shilmagan. <Link href="/devices/">Terminal qo&apos;shish</Link></td></tr>}
           </tbody>
         </table>
       </div>

@@ -64,6 +64,7 @@ class SyncEngine {
         if (wanted(emp) || (emp.deviceSync && emp.deviceSync[dev.id])) this.forced.add(`${dev.id}:${emp.id}`);
       }
       this.pendingResyncDone = { ...(this.pendingResyncDone || {}), [dev.id]: ms };
+      this.forcedPlans = new Set([...(this.forcedPlans || []), dev.id]);
     }
   }
 
@@ -95,6 +96,9 @@ class SyncEngine {
         continue;
       }
       let failedConnection = false;
+      // Entry schedules first: people refer to them.
+      const plans = await this.syncAccessPlans(dev);
+      if (plans && plans.connection) continue;
       for (const emp of [...this.store.employees.values()]) {
         if (failedConnection) break;
         if (!this.store.devices.has(dev.id)) break; // terminal deleted meanwhile
@@ -136,6 +140,43 @@ class SyncEngine {
     }
   }
 
+  /** Writes the door entry schedules to the terminal when they changed since it last got them. */
+  async syncAccessPlans(dev) {
+    const store = this.store;
+    if (!store.listAccessProfiles) return null;
+    const version = Number(store.settings.accessPlansVersion) || 0;
+    const forced = this.forcedPlans && this.forcedPlans.has(dev.id);
+    if (!forced && (Number(dev.accessPlansVersion) || 0) === version) return null;
+    const profiles = store.listAccessProfiles();
+    if (!profiles.length && !forced && !dev.accessPlansVersion && !version) return null;
+    const client = this.clientFor(dev);
+    const hadError = !!dev.accessPlanError;
+    // When the terminal starts (or stops) accepting schedules, people with one must be sent again.
+    const resendIfChanged = (hasError) => {
+      if (hasError === hadError) return;
+      for (const e of store.employees.values()) if (e.accessProfileId && wanted(e)) this.forced.add(`${dev.id}:${e.id}`);
+    };
+    try {
+      for (const p of profiles) await client.setAccessPlan(p.slot, p.slot, `davomat-${p.slot}`, p.days);
+      await store.updateDevice(dev.id, { accessPlansVersion: version, accessPlanError: '' });
+      resendIfChanged(false);
+      if (this.forcedPlans) this.forcedPlans.delete(dev.id);
+      if (profiles.length) this.log.log(`🚪 ${dev.name}: kirish ruxsati jadvallari yozildi (${profiles.length} ta)`);
+      return { ok: true };
+    } catch (err) {
+      const connection = !!(err.connection || err.status === 401);
+      const message = explainError(err);
+      if (!connection) {
+        // e.g. firmware without access schedules: remember, people are still synced (with "any time" access failing over)
+        await store.updateDevice(dev.id, { accessPlansVersion: version, accessPlanError: message }).catch(() => {});
+        resendIfChanged(true);
+        if (this.forcedPlans) this.forcedPlans.delete(dev.id);
+      }
+      if (!err.blocked) this.log.warn(`⚠️  ${dev.name}: kirish ruxsati jadvallarini yozib bo'lmadi: ${message}`);
+      return { ok: false, connection };
+    }
+  }
+
   hasForcedFor(deviceId) {
     for (const k of this.forced) if (k.startsWith(`${deviceId}:`)) return true;
     return false;
@@ -146,7 +187,9 @@ class SyncEngine {
     const version = emp.version;
     try {
       if (wanted(emp)) {
-        await client.upsertUser(emp);
+        // A terminal that could not store entry schedules gets "any time" so the person can still get in.
+        const template = this.store.accessTemplateFor && !dev.accessPlanError ? this.store.accessTemplateFor(emp, dev) : 1;
+        await client.upsertUser(emp, template);
         if (emp.hasFace) {
           const jpeg = await this.store.getFace(emp.id);
           if (jpeg) await client.setFace(emp.employeeNo, jpeg);

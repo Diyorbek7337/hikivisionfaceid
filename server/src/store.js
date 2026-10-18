@@ -16,7 +16,11 @@ const DEFAULT_SETTINGS = {
   dailyReportEnabled: true,
   organizationName: '',
   dailyReportSentFor: '',
+  accessPlansVersion: 0, // bumped when door entry schedules change; terminals store the version they have
 };
+
+/** Template / week plan numbers used for door entry schedules (1 is the terminal's built-in "all day"). */
+const ACCESS_SLOTS = { min: 2, max: 32 };
 
 const bool = (v) => !!Number(v);
 const nowIso = () => new Date().toISOString();
@@ -41,6 +45,7 @@ function mapEmployee(r) {
     telegramChatId: r.telegram_chat_id || '',
     scheduleId: r.schedule_id,
     personalSchedule: json(r.personal_schedule, null),
+    accessProfileId: r.access_profile_id || null,
     payType: payTypeOf(r.pay_type),
     payRate: r.hourly_rate,
     active: bool(r.active),
@@ -201,6 +206,45 @@ class LocalStore extends EventEmitter {
 
   async getWorkHours(employee, date) { return this.getWorkHoursSync(employee, date); }
 
+  // ---------- door entry schedules ----------
+  listAccessProfiles() {
+    return this.q('SELECT * FROM access_profiles ORDER BY id').all().map((r) => ({ id: r.id, name: r.name, slot: r.slot, days: json(r.days, {}) }));
+  }
+
+  getAccessProfile(id) { return this.listAccessProfiles().find((p) => p.id === Number(id)) || null; }
+
+  saveAccessProfile({ id, name, days }) {
+    if (id) {
+      this.q('UPDATE access_profiles SET name = ?, days = ? WHERE id = ?').run(name, JSON.stringify(days), id);
+    } else {
+      const used = new Set(this.listAccessProfiles().map((p) => p.slot));
+      let slot = ACCESS_SLOTS.min;
+      while (used.has(slot)) slot += 1;
+      if (slot > ACCESS_SLOTS.max) throw Object.assign(new Error('Ruxsat jadvallari soni chegarasiga yetdi'), { status: 400 });
+      id = Number(this.q('INSERT INTO access_profiles (name, slot, days) VALUES (?, ?, ?)').run(name, slot, JSON.stringify(days)).lastInsertRowid);
+    }
+    this.saveSettings({ accessPlansVersion: (Number(this.settings.accessPlansVersion) || 0) + 1 });
+    return id;
+  }
+
+  deleteAccessProfile(id) {
+    const used = this.q('SELECT COUNT(*) AS n FROM employees WHERE access_profile_id = ? AND deleted = 0').get(id).n;
+    if (used) throw Object.assign(new Error(`Bu ruxsat jadvali ${used} ta xodimga biriktirilgan`), { status: 400 });
+    this.q('DELETE FROM access_profiles WHERE id = ?').run(id);
+    this.q('UPDATE employees SET access_profile_id = NULL WHERE access_profile_id = ?').run(id); // deleted employees
+    this.saveSettings({ accessPlansVersion: (Number(this.settings.accessPlansVersion) || 0) + 1 });
+  }
+
+  /**
+   * Access template number for this employee on this terminal. Exit terminals always use 1 (any time):
+   * nobody must be locked inside after hours.
+   */
+  accessTemplateFor(employee, device) {
+    if (!employee.accessProfileId || (device && device.direction === 'out')) return 1;
+    const p = this.getAccessProfile(employee.accessProfileId);
+    return p ? p.slot : 1;
+  }
+
   // ---------- employees ----------
   async findEmployeeByNo(no) {
     for (const e of this.employees.values()) if (!e.deleted && String(e.employeeNo) === String(no)) return e;
@@ -218,10 +262,11 @@ class LocalStore extends EventEmitter {
   }
 
   createEmployee(e, { emit = true } = {}) {
-    const r = this.q(`INSERT INTO employees (employee_no, name, position, phone, telegram_chat_id, schedule_id, personal_schedule, pay_type, hourly_rate, active)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+    const r = this.q(`INSERT INTO employees (employee_no, name, position, phone, telegram_chat_id, schedule_id, personal_schedule, access_profile_id,
+      pay_type, hourly_rate, active)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
       this.nextEmployeeNo(), e.name, e.position || null, e.phone || null, e.telegramChatId || null,
-      e.scheduleId || null, e.personalSchedule ? JSON.stringify(e.personalSchedule) : null,
+      e.scheduleId || null, e.personalSchedule ? JSON.stringify(e.personalSchedule) : null, e.accessProfileId || null,
       payTypeOf(e.payType), Number(e.payRate) || 0, e.active === false ? 0 : 1,
     );
     if (emit) this.reloadEmployees();
@@ -230,9 +275,9 @@ class LocalStore extends EventEmitter {
 
   updateEmployee(id, e) {
     this.q(`UPDATE employees SET name = ?, position = ?, phone = ?, telegram_chat_id = ?, schedule_id = ?, personal_schedule = ?,
-      pay_type = ?, hourly_rate = ?, active = ?, version = version + 1, updated_at = ? WHERE id = ?`).run(
+      access_profile_id = ?, pay_type = ?, hourly_rate = ?, active = ?, version = version + 1, updated_at = ? WHERE id = ?`).run(
       e.name, e.position || null, e.phone || null, e.telegramChatId || null, e.scheduleId || null,
-      e.personalSchedule ? JSON.stringify(e.personalSchedule) : null, payTypeOf(e.payType), Number(e.payRate) || 0,
+      e.personalSchedule ? JSON.stringify(e.personalSchedule) : null, e.accessProfileId || null, payTypeOf(e.payType), Number(e.payRate) || 0,
       e.active ? 1 : 0, nowIso(), id,
     );
     this.reloadEmployees();

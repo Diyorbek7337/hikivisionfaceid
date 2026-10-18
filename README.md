@@ -14,6 +14,8 @@ serverlari kerak emas, ma'lumotlar tashkilot ichida qoladi.
 - ✅ Terminalda yuz ko'rsatilsa — **keldi/ketdi**, kechikish, erta ketish, ishlagan soat hisoblanadi.
   Bir kunda **bir necha marta kelib-ketish** alohida hisoblanadi (08:00–10:00 + 14:00–16:00 = 4 soat).
 - 💰 To'lov: **soatbay**, **kunbay** yoki **har bir kelish uchun (darsbay)**.
+- 🚪 **Elektron eshik**: yuz tanilganda terminal eshikni o'zi ochadi; web ilovadan **"Eshikni ochish"** tugmasi;
+  xodimlarga **vaqt bo'yicha kirish ruxsati** (masalan, faqat Du–Sh 07:00–19:00).
 - 📊 **Bugun** sahifasi (jonli), **hisobot** (kelgan/kelmagan kunlar, kechikishlar), Excel'ga yuklab olish,
   unutilgan skanni qo'lda tuzatish.
 - 🤖 **Telegram**: direktorga har kuni ertalab "kim keldi / kechikdi / kelmadi" hisoboti (ixtiyoriy).
@@ -151,6 +153,26 @@ Xodim ishdan ketsa: **Tahrirlash → "Faol" belgisini olib tashlang** — u term
   **Excel (CSV)** tugmasi bilan yuklab olinadi. Xodim skan qilishni unutsa — **Tahrirlash** (kunning barcha
   kelib-ketishlari, har biri alohida qatorda) yoki **+ Qo'lda qo'shish** (faqat yetishmagan vaqtni kiriting).
 - **Eventlar** — terminallardan kelgan har bir skan (sozlashda tekshirish uchun).
+
+---
+
+## 4.1. Elektron eshik (ixtiyoriy)
+
+Terminalning **Lock** chiqishiga elektron qulf ulansa (magnit qulf yoki zashyolka, alohida 12V blok pitaniya,
+ichkaridan **Exit** tugmasi), yuz tanilganda terminal eshikni o'zi ochadi — kompyuter o'chiq bo'lsa ham.
+Eshik necha soniya ochiq turishi terminal web sahifasida: **Access Control → Door Parameters**.
+Xavfsizlik uchun ichkariga **Secure Door Control Unit** (masalan DS-K2M061) qo'yish tavsiya etiladi; magnit qulf
+tok o'chganda ochiladigan turda bo'lsin.
+
+- **Eshikni web ilovadan ochish** — **Terminallar** sahifasida (va **Bugun** sahifasidagi terminallar ro'yxatida):
+  **🔓 Eshikni ochish** (bir marta), **Doimiy ochiq** (masalan, tadbir paytida), **Odatiy holat** (doimiy ochiqni bekor qilish).
+  Kim qachon ochgani **Eventlar** sahifasida yoziladi.
+- **Vaqt bo'yicha kirish ruxsati** — **Jadvallar → 🚪 Eshikdan kirish ruxsati** → masalan "Ish vaqtida: Du–Sh 07:00–19:00".
+  Keyin **Xodimlar → Tahrirlash → Eshikdan kirish** da tanlanadi. Tanlanmagan xodim istalgan vaqtda kiradi.
+  Cheklov faqat **Kirish** va **Avtomatik** terminallarga yoziladi; **Chiqish** terminali hammani istalgan vaqtda chiqaradi.
+  Bu faqat eshikka ta'sir qiladi — davomat hisobi ish jadvali bo'yicha qoladi.
+  Agar terminal ruxsat jadvallarini qabul qilmasa (eski proshivka), Terminallar sahifasida ogohlantirish chiqadi
+  va u terminalda hamma istalgan vaqtda kira oladi.
 
 ---
 

@@ -11,12 +11,13 @@ export default function Page() {
   return <Suspense fallback={<p className="muted">Yuklanmoqda…</p>}><EmployeeForm /></Suspense>;
 }
 
-const EMPTY = { name: '', position: '', phone: '', telegramChatId: '', scheduleId: '', personalSchedule: null, payType: 'hourly', payRate: 0, active: true };
+const EMPTY = { name: '', position: '', phone: '', telegramChatId: '', scheduleId: '', personalSchedule: null, accessProfileId: '', payType: 'hourly', payRate: 0, active: true };
 
 function EmployeeForm() {
   const router = useRouter();
   const id = useSearchParams().get('id');
   const { data: schedules } = useApi('/schedules');
+  const { data: accessProfiles } = useApi('/access-profiles');
   const [form, setForm] = useState(EMPTY);
   const [original, setOriginal] = useState(null);
   const [face, setFace] = useState(undefined); // undefined = unchanged, null = removed, string = new base64
@@ -29,7 +30,7 @@ function EmployeeForm() {
     if (!id) return;
     api(`/employees/${id}`).then((e) => {
       setOriginal(e);
-      setForm({ ...EMPTY, ...e, scheduleId: e.scheduleId || '' });
+      setForm({ ...EMPTY, ...e, scheduleId: e.scheduleId || '', accessProfileId: e.accessProfileId || '' });
       setLoading(false);
     }).catch((e) => { if (e.status === 404 || e.status === 400) setNotFound(true); else setError(e.message); setLoading(false); });
   }, [id]);
@@ -57,7 +58,7 @@ function EmployeeForm() {
     setError('');
     setSaving(true);
     try {
-      const body = { ...form, scheduleId: form.scheduleId ? Number(form.scheduleId) : null };
+      const body = { ...form, scheduleId: form.scheduleId ? Number(form.scheduleId) : null, accessProfileId: form.accessProfileId ? Number(form.accessProfileId) : null };
       if (id) {
         await api(`/employees/${id}`, { method: 'PUT', body });
         if (face !== undefined) await api(`/employees/${id}/face`, { method: 'PUT', body: { image: face } });
@@ -112,6 +113,10 @@ function EmployeeForm() {
           </select></label>
           <label>Stavka (so&apos;m {(PAY_TYPES.find(([k]) => k === form.payType) || PAY_TYPES[0])[2]}iga)
             <input type="number" min="0" step="1" value={form.payRate} onChange={set('payRate')} placeholder="0 — hisoblanmaydi" /></label>
+          <label>Eshikdan kirish<select value={form.accessProfileId} onChange={set('accessProfileId')}>
+            <option value="">Istalgan vaqtda</option>
+            {(accessProfiles || []).map((p) => <option key={p.id} value={p.id}>{p.name} — {scheduleSummary(p)}</option>)}
+          </select></label>
           <label>Telegram chat ID<input value={form.telegramChatId} onChange={set('telegramChatId')} placeholder="Bot /start da ko'rsatadi" /></label>
           <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <input type="checkbox" checked={!!form.active} onChange={set('active')} /> Faol (terminal taniydi)

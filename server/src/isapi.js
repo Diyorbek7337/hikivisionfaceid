@@ -237,20 +237,21 @@ class IsapiClient {
 
   // ---------- persons ----------
 
-  static userInfo(employee) {
+  /** templateNo: access schedule on this terminal (1 = the built-in "all day, every day"). */
+  static userInfo(employee, templateNo = 1) {
     return {
       employeeNo: String(employee.employeeNo),
       name: String(employee.name || '').slice(0, 32),
       userType: 'normal',
       Valid: { enable: true, beginTime: '2020-01-01T00:00:00', endTime: '2037-12-31T23:59:59', timeType: 'local' },
       doorRight: '1',
-      RightPlan: [{ doorNo: 1, planTemplateNo: '1' }],
+      RightPlan: [{ doorNo: 1, planTemplateNo: String(templateNo) }],
     };
   }
 
   /** Adds the person, or updates it when the employee number already exists. */
-  async upsertUser(employee) {
-    const UserInfo = IsapiClient.userInfo(employee);
+  async upsertUser(employee, templateNo = 1) {
+    const UserInfo = IsapiClient.userInfo(employee, templateNo);
     try {
       await this.json('POST', '/ISAPI/AccessControl/UserInfo/Record?format=json', { UserInfo });
       return 'added';
@@ -259,6 +260,39 @@ class IsapiClient {
     }
     await this.json('PUT', '/ISAPI/AccessControl/UserInfo/Modify?format=json', { UserInfo });
     return 'updated';
+  }
+
+  // ---------- door access ----------
+
+  /**
+   * Writes a weekly access schedule (week plan `planNo`) and the template `templateNo` that uses it.
+   * days: {"0": null | {start: "HH:MM", end: "HH:MM"}, ...}, 0 = Sunday. A null day = no entry that day.
+   */
+  async setAccessPlan(templateNo, planNo, name, days) {
+    const WEEK = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const WeekPlanCfg = [];
+    for (let i = 0; i < 7; i += 1) {
+      const d = days && days[String(i)];
+      WeekPlanCfg.push({
+        week: WEEK[i], id: 1, enable: !!d,
+        TimeSegment: d ? { beginTime: `${d.start}:00`, endTime: `${d.end}:00` } : { beginTime: '00:00:00', endTime: '00:00:00' },
+      });
+    }
+    await this.json('PUT', `/ISAPI/AccessControl/UserRightWeekPlanCfg/${planNo}?format=json`, {
+      UserRightWeekPlanCfg: { enable: true, WeekPlanCfg },
+    });
+    await this.json('PUT', `/ISAPI/AccessControl/UserRightPlanTemplate/${templateNo}?format=json`, {
+      UserRightPlanTemplate: { enable: true, templateName: String(name).slice(0, 32), weekPlanNo: planNo, holidayGroupNo: '' },
+    });
+  }
+
+  /** Door command from the web app: open (once) | alwaysOpen | close (back to normal / closed). */
+  async remoteDoor(cmd, doorNo = 1) {
+    if (!['open', 'alwaysOpen', 'close'].includes(cmd)) throw new IsapiError(`Noma'lum buyruq: ${cmd}`, { status: 400 });
+    const body = `<?xml version="1.0" encoding="UTF-8"?><RemoteControlDoor version="2.0" xmlns="http://www.isapi.org/ver20/XMLSchema">`
+      + `<cmd>${cmd}</cmd></RemoteControlDoor>`;
+    const res = await this.request('PUT', `/ISAPI/AccessControl/RemoteControl/door/${doorNo}`, { body, contentType: 'application/xml' });
+    return IsapiClient.check(res);
   }
 
   /** Deletes the person (and its face). Missing person is not an error. */

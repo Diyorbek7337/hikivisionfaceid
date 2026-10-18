@@ -4,11 +4,12 @@ import { api, useApi } from '@/lib/api';
 import { useApp } from '@/components/AppShell';
 import { localDateTime } from '@/lib/time';
 import { DeviceStatus, ErrorBox } from '@/components/ui';
+import DoorButtons from '@/components/DoorButtons';
 
 const DIRECTIONS = {
   in: '➡️ Kirish — har skan "keldi"',
   out: '⬅️ Chiqish — har skan "ketdi"',
-  auto: '🔁 Avtomatik — kunning 1-skani "keldi", keyingilari "ketdi"',
+  auto: '🔁 Avtomatik (bitta eshik) — skanlar navbat bilan: "keldi", "ketdi", "keldi"…',
 };
 
 export default function Devices() {
@@ -50,6 +51,12 @@ export default function Devices() {
             {d.lastCheckAt && <span className="muted"> · tekshirildi: {localDateTime(d.lastCheckAt)}</span>}
           </p>
           {d.online === false && <p className="bad">✗ {d.lastError}</p>}
+          <p><DoorButtons device={d} onDone={reload} /></p>
+          {d.doorMode === 'alwaysOpen' && <p className="flash warn">🚪 Eshik <b>doimiy ochiq</b> rejimida — &quot;Odatiy holat&quot; ni bosing.</p>}
+          {d.accessPlanError && (
+            <p className="warn">⚠️ Terminal kirish ruxsati jadvallarini qabul qilmadi ({d.accessPlanError}) — bu terminalda hamma istalgan vaqtda kira oladi.
+              Proshivkani yangilab, &quot;Qayta yuborish&quot; ni bosing.</p>
+          )}
           {d.online && (
             <p className="muted">
               {d.lastPollAt ? <>📥 Eventlar terminal xotirasidan o&apos;qilmoqda (oxirgi: {localDateTime(d.lastPollAt)})</> : <>📥 Eventlarni o&apos;qish boshlanmoqda…</>}
