@@ -70,3 +70,16 @@ test('fresh events send Telegram messages', async (t) => {
   assert.ok(sent.some((m) => m.c === '111' && /Kelganingiz/.test(m.t)));
   assert.ok(sent.some((m) => m.c === '111' && /Ketganingiz/.test(m.t)));
 });
+
+test('terminal operation logs (major 3) are ignored quietly', async (t) => {
+  const { store, server, post } = await setup();
+  t.after(() => server.close());
+  const opLog = JSON.stringify({ dateTime: '2026-01-15T09:00:00+05:00', eventType: 'AccessControllerEvent', AccessControllerEvent: { majorEventType: 3, subEventType: 1028, serialNo: 9 } });
+  await post('/hik/in1/event', opLog);
+  assert.equal(store.events.size, 0);
+  // door events are ignored, a failed face (5/76) is recorded as "not recognised"
+  await post('/hik/in1/event', JSON.stringify({ dateTime: '2026-01-15T09:00:03+05:00', eventType: 'AccessControllerEvent', AccessControllerEvent: { majorEventType: 5, subEventType: 21, serialNo: 11 } }));
+  const failed = JSON.stringify({ dateTime: '2026-01-15T09:00:05+05:00', eventType: 'AccessControllerEvent', AccessControllerEvent: { majorEventType: 5, subEventType: 76, serialNo: 10 } });
+  await post('/hik/in1/event', failed);
+  assert.deepEqual([...store.events.values()].map((e) => e.action), ['not_recognized']);
+});

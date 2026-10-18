@@ -68,9 +68,12 @@ function createPushHandler({ store, tz, telegram, log = console, samplePath = nu
       }
       const ev = normalizeEvent(raw);
       if (ev.isHeartbeat) return;
-      if (!ev.isAccess || (!ev.employeeNo && ev.major !== 5)) {
-        log.log(`ℹ️  ${device.name}: ${ev.eventType || 'event'} ${ev.major ?? ''}/${ev.minor ?? ''} (xodim raqamisiz)`);
-        if (!ev.isAccess) saveSample(req);
+      // Hikvision major types: 1 alarm, 2 exception, 3 operation (e.g. our own status checks: 3/1028), 5 access event.
+      // Only 5 is about people passing; the rest is the terminal's own log and is ignored quietly.
+      if (ev.isAccess && ev.major != null && ev.major !== 5) return;
+      if (!ev.isAccess) {
+        log.log(`ℹ️  ${device.name}: ${ev.eventType || 'noma\'lum event'} (o'tkazib yuborildi)`);
+        saveSample(req);
         return;
       }
 
@@ -82,8 +85,10 @@ function createPushHandler({ store, tz, telegram, log = console, samplePath = nu
         employeeNo: ev.employeeNo || null, personName: ev.name || null, major: ev.major, minor: ev.minor,
       };
       if (!ev.employeeNo) {
+        // Door opened/closed etc. come with every scan: ignore. Keep only "face not recognised" (5/76).
+        if (ev.minor !== 76) return;
         await store.saveEvent(key, { ...base, action: 'not_recognized' });
-        log.log(`ℹ️  ${device.name}: tanilmagan / boshqa event (${ev.major}/${ev.minor})`);
+        log.log(`ℹ️  ${device.name}: yuz tanilmadi`);
         return;
       }
       const result = await processScan(store, store.settings, tz, device, ev);
