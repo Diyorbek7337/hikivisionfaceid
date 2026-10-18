@@ -388,11 +388,15 @@ class LocalStore extends EventEmitter {
   countUsers() { return this.q('SELECT COUNT(*) AS n FROM users').get().n; }
   listUsers() { return this.q('SELECT id, username, name, created_at FROM users ORDER BY id').all().map((r) => ({ ...r })); }
   getUserByName(username) { const r = this.q('SELECT * FROM users WHERE username = ?').get(username); return r ? { ...r } : null; }
-  getUser(id) { const r = this.q('SELECT id, username, name FROM users WHERE id = ?').get(id); return r ? { ...r } : null; }
+  getUser(id) { const r = this.q('SELECT id, username, name, session_version FROM users WHERE id = ?').get(id); return r ? { ...r } : null; }
+  /** Invalidates all existing sessions of the user (logout, password change). */
+  bumpSessionVersion(id) { this.q('UPDATE users SET session_version = session_version + 1 WHERE id = ?').run(id); }
   createUser({ username, name, passwordHash }) {
     return Number(this.q('INSERT INTO users (username, name, password_hash) VALUES (?, ?, ?)').run(username, name || null, passwordHash).lastInsertRowid);
   }
-  setUserPassword(id, passwordHash) { this.q('UPDATE users SET password_hash = ? WHERE id = ?').run(passwordHash, id); }
+  setUserPassword(id, passwordHash) {
+    this.q('UPDATE users SET password_hash = ?, session_version = session_version + 1 WHERE id = ?').run(passwordHash, id);
+  }
   deleteUser(id) {
     if (this.countUsers() <= 1) throw Object.assign(new Error('Oxirgi foydalanuvchini o\'chirib bo\'lmaydi'), { status: 400 });
     this.q('DELETE FROM users WHERE id = ?').run(id);

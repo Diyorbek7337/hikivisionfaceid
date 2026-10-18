@@ -29,14 +29,20 @@ function dateFromLocal(date, hhmm, tz) {
 /** Express 4 does not catch rejected promises: pass them to the error handler. */
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
+/** Whole number within [min, max]; anything else (NaN, Infinity, '1e400') becomes min. */
+function clampInt(v, min, max) {
+  const n = Math.round(Number(v));
+  return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : min;
+}
+
 function cleanEmployee(b) {
   const e = {
-    name: String(b.name || '').trim(),
-    position: String(b.position || '').trim(),
-    phone: String(b.phone || '').trim(),
-    telegramChatId: String(b.telegramChatId || '').trim(),
+    name: String(b.name || '').trim().replace(/\s+/g, ' '),
+    position: String(b.position || '').trim().slice(0, 100),
+    phone: String(b.phone || '').trim().slice(0, 30),
+    telegramChatId: String(b.telegramChatId || '').trim().slice(0, 20),
     scheduleId: b.scheduleId ? Number(b.scheduleId) : null,
-    hourlyRate: Math.max(0, Math.round(Number(b.hourlyRate) || 0)),
+    hourlyRate: clampInt(b.hourlyRate, 0, 100000000),
     active: b.active !== false,
   };
   if (!e.name) throw bad('Ismni kiriting');
@@ -46,7 +52,7 @@ function cleanEmployee(b) {
 }
 
 function cleanSchedule(b) {
-  const name = String(b.name || '').trim();
+  const name = String(b.name || '').trim().slice(0, 60);
   if (!name) throw bad('Jadval nomini kiriting');
   const days = {};
   for (let i = 0; i < 7; i += 1) {
@@ -74,7 +80,9 @@ function decodeImage(b64) {
 
 function createApi({ store, auth, cfg, sync, backup, version }) {
   const api = express.Router();
-  api.use(express.json({ limit: '5mb' }));
+  // Small bodies before login; larger ones (face photos, Excel import) only for logged-in users.
+  const smallJson = express.json({ limit: '32kb' });
+  const bigJson = express.json({ limit: '5mb' });
   const tz = cfg.timezone;
 
   // ---------- session ----------
@@ -82,7 +90,7 @@ function createApi({ store, auth, cfg, sync, backup, version }) {
     res.json({ user: auth.currentUser(req), needsSetup: store.countUsers() === 0, setupAllowed: isLocalRequest(req) });
   });
 
-  api.post('/setup', (req, res) => {
+  api.post('/setup', smallJson, (req, res) => {
     if (store.countUsers() > 0) throw new HttpError(409, 'Administrator allaqachon yaratilgan');
     if (!isLocalRequest(req)) throw new HttpError(403, 'Birinchi sozlash faqat server kompyuterining o\'zidan (localhost) qilinadi');
     const username = String(req.body.username || '').trim();
@@ -95,17 +103,23 @@ function createApi({ store, auth, cfg, sync, backup, version }) {
     res.json({ ok: true });
   });
 
-  api.post('/login', (req, res) => {
-    const result = auth.login(req, req.body.username, req.body.password);
+  api.post('/login', smallJson, wrap(async (req, res) => {
+    const result = await auth.login(req, req.body.username, req.body.password);
     if (typeof result === 'string') throw new HttpError(401, result);
     auth.startSession(res, result);
     res.json({ user: result });
-  });
+  }));
 
-  api.post('/logout', (req, res) => { auth.endSession(res); res.json({ ok: true }); });
+  api.post('/logout', (req, res) => {
+    const user = auth.currentUser(req);
+    if (user) store.bumpSessionVersion(user.id); // the old cookie stops working everywhere
+    auth.endSession(res);
+    res.json({ ok: true });
+  });
 
   // Everything below needs a logged-in user.
   api.use((req, res, next) => auth.require(req, res, next));
+  api.use(bigJson);
 
   // ---------- status & settings ----------
   api.get('/status', (req, res) => {
@@ -118,8 +132,8 @@ function createApi({ store, auth, cfg, sync, backup, version }) {
   api.put('/settings', (req, res) => {
     const b = req.body || {};
     const patch = {};
-    if (b.lateGraceMinutes !== undefined) patch.lateGraceMinutes = Math.max(0, Number(b.lateGraceMinutes) || 0);
-    if (b.debounceSeconds !== undefined) patch.debounceSeconds = Math.max(0, Number(b.debounceSeconds) || 0);
+    if (b.lateGraceMinutes !== undefined) patch.lateGraceMinutes = clampInt(b.lateGraceMinutes, 0, 240);
+    if (b.debounceSeconds !== undefined) patch.debounceSeconds = clampInt(b.debounceSeconds, 0, 3600);
     if (b.autoTimeSync !== undefined) patch.autoTimeSync = !!b.autoTimeSync;
     if (b.dailyReportEnabled !== undefined) patch.dailyReportEnabled = !!b.dailyReportEnabled;
     if (b.dailyReportTime !== undefined) {
@@ -220,14 +234,28 @@ function createApi({ store, auth, cfg, sync, backup, version }) {
 
   function cleanDevice(b, existing) {
     const d = {
-      name: String(b.name || '').trim() || 'Terminal',
+      name: String(b.name || '').trim().slice(0, 60) || 'Terminal',
       ip: String(b.ip || '').trim(),
       port: Number(b.port) || 80,
-      username: String(b.username || '').trim() || 'admin',
-      password: b.password === undefined || b.password === '' ? (existing ? existing.password : '') : String(b.password),
+      username: String(b.username || '').trim().slice(0, 32) || 'admin',
+      password: b.password === undefined || b.password === '' ? null : String(b.password).slice(0, 64),
       direction: ['in', 'out', 'auto'].includes(b.direction) ? b.direction : 'in',
     };
-    if (!/^[\w.-]+$/.test(d.ip)) throw bad('IP manzil noto\'g\'ri (masalan 192.168.31.68)');
+    const parts = d.ip.split('.');
+    if (parts.length !== 4 || parts.some((p) => !/^\d{1,3}$/.test(p) || Number(p) > 255)) {
+      throw bad('IP manzil noto\'g\'ri (masalan 192.168.31.68)');
+    }
+    if (!Number.isInteger(d.port) || d.port < 1 || d.port > 65535) throw bad('Port noto\'g\'ri');
+    if (d.password === null) {
+      // Keep the saved password only for the same terminal address: never send it to a new address unasked.
+      if (existing && existing.ip === d.ip && Number(existing.port) === d.port && existing.username === d.username) {
+        d.password = existing.password;
+      } else if (existing) {
+        throw bad('Terminal manzili yoki logini o\'zgardi — parolni qayta kiriting');
+      } else {
+        d.password = '';
+      }
+    }
     return d;
   }
 
@@ -323,7 +351,11 @@ function createApi({ store, auth, cfg, sync, backup, version }) {
   api.use((err, req, res, next) => {
     const status = err.status || (err.type === 'entity.too.large' ? 413 : 500);
     if (status >= 500) console.error('API xato:', err);
-    res.status(status).json({ error: status >= 500 ? `Server xatosi: ${err.message}` : err.message });
+    let message = err.message;
+    if (status === 413) message = 'Yuborilgan ma\'lumot juda katta';
+    else if (status === 400 && err.type === 'entity.parse.failed') message = 'Noto\'g\'ri so\'rov';
+    else if (status >= 500) message = 'Serverda xato yuz berdi. Qora oynadagi xabarni tekshiring.';
+    res.status(status).json({ error: message });
   });
 
   return api;

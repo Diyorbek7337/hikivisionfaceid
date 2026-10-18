@@ -15,8 +15,8 @@ function event(employeeNo, dateTime, serialNo) {
 
 async function setup() {
   const store = new MemoryStore();
-  store.addDevice({ id: 'in1', name: 'Kirish', direction: 'in', ip: '10.0.0.5' });
-  store.addDevice({ id: 'out1', name: 'Chiqish', direction: 'out', ip: '10.0.0.6' });
+  store.addDevice({ id: 'in1', name: 'Kirish', direction: 'in', ip: '127.0.0.1' });
+  store.addDevice({ id: 'out1', name: 'Chiqish', direction: 'out', ip: '127.0.0.1' });
   store.addEmployee({ id: 'e1', employeeNo: '1', name: 'Aziz', hourlyRate: 25000, telegramChatId: '111' });
   const sent = [];
   const telegram = { enabled: true, async send(c, t) { sent.push({ c, t }); }, async notifyAdmins(t) { sent.push({ c: 'admins', t }); } };
@@ -55,7 +55,6 @@ test('unknown employee, unknown device, heartbeat', async (t) => {
   const { store, server, post } = await setup();
   t.after(() => server.close());
   await post('/hik/in1/event', event('99', '2026-01-15T09:00:00+05:00', 5));
-  await post('/hik/zzz/event', event('1', '2026-01-15T09:00:00+05:00', 6));
   await post('/hik/in1/event', '{"eventType":"heartBeat"}');
   assert.deepEqual([...store.events.values()].map((e) => e.action), ['unknown_employee']);
 });
@@ -82,4 +81,14 @@ test('terminal operation logs (major 3) are ignored quietly', async (t) => {
   const failed = JSON.stringify({ dateTime: '2026-01-15T09:00:05+05:00', eventType: 'AccessControllerEvent', AccessControllerEvent: { majorEventType: 5, subEventType: 76, serialNo: 10 } });
   await post('/hik/in1/event', failed);
   assert.deepEqual([...store.events.values()].map((e) => e.action), ['not_recognized']);
+});
+
+test('a push with a valid URL but from another computer is rejected (no forged attendance)', async (t) => {
+  const { store, server, post } = await setup();
+  t.after(() => server.close());
+  store.addDevice({ id: 'far', name: 'Uzoq', direction: 'in', ip: '10.0.0.9' });
+  const r = await post('/hik/far/event', event('1', '2026-01-15T09:00:00+05:00', 1));
+  assert.equal(r.status, 403);
+  assert.equal(store.events.size, 0);
+  assert.equal(store.attendance.size, 0);
 });

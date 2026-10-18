@@ -2,7 +2,7 @@
 const crypto = require('node:crypto');
 
 const COOKIE = 'davomat_session';
-const MAX_AGE_SEC = 30 * 24 * 3600;
+const MAX_AGE_SEC = 14 * 24 * 3600;
 
 function hashPassword(password) {
   const salt = crypto.randomBytes(16);
@@ -17,6 +17,22 @@ function verifyPassword(password, stored) {
   const actual = crypto.scryptSync(String(password), Buffer.from(saltB64, 'base64'), expected.length);
   return crypto.timingSafeEqual(actual, expected);
 }
+
+/** Async variant used at login, so a login attempt does not block the server. */
+function verifyPasswordAsync(password, stored) {
+  return new Promise((resolve) => {
+    const [alg, saltB64, hashB64] = String(stored || '').split('$');
+    if (alg !== 'scrypt' || !saltB64 || !hashB64) return resolve(false);
+    const expected = Buffer.from(hashB64, 'base64');
+    crypto.scrypt(String(password), Buffer.from(saltB64, 'base64'), expected.length, (err, actual) => {
+      resolve(!err && crypto.timingSafeEqual(actual, expected));
+    });
+    return undefined;
+  });
+}
+
+// Compared against when the user does not exist, so the response time does not reveal valid logins.
+const DUMMY_HASH = hashPassword(crypto.randomBytes(16).toString('hex'));
 
 function sign(payload, secret) {
   const data = Buffer.from(JSON.stringify(payload)).toString('base64url');
@@ -42,29 +58,44 @@ function verify(token, secret) {
 function readCookie(req, name) {
   for (const part of (req.headers.cookie || '').split(';')) {
     const i = part.indexOf('=');
-    if (i > 0 && part.slice(0, i).trim() === name) return decodeURIComponent(part.slice(i + 1).trim());
+    if (i > 0 && part.slice(0, i).trim() === name) {
+      try { return decodeURIComponent(part.slice(i + 1).trim()); } catch { return null; }
+    }
   }
   return null;
 }
 
+/** Request made on the server computer itself (and addressed to it as localhost — guards against DNS rebinding). */
 function isLocalRequest(req) {
   const ip = String(req.socket.remoteAddress || '').replace(/^::ffff:/, '');
-  return ip === '127.0.0.1' || ip === '::1';
+  const host = String(req.headers.host || '').replace(/:\d+$/, '').toLowerCase();
+  return (ip === '127.0.0.1' || ip === '::1') && ['localhost', '127.0.0.1', '[::1]'].includes(host);
 }
 
 function createAuth({ store, secret }) {
   const failures = new Map(); // ip -> { count, until }
+  setInterval(() => {
+    const now = Date.now();
+    for (const [ip, f] of failures) if (f.until < now) failures.delete(ip);
+  }, 10 * 60 * 1000).unref();
 
   return {
     hashPassword,
 
     currentUser(req) {
       const s = verify(readCookie(req, COOKIE), secret);
-      return s ? store.getUser(s.uid) : null;
+      if (!s) return null;
+      const user = store.getUser(s.uid);
+      // Sessions issued before a logout / password change are no longer valid.
+      if (!user || (user.session_version || 0) !== (s.sv || 0)) return null;
+      const { session_version: _v, ...pub } = user;
+      return pub;
     },
 
     startSession(res, user) {
-      const token = sign({ uid: user.id, exp: Math.floor(Date.now() / 1000) + MAX_AGE_SEC }, secret);
+      const fresh = store.getUser(user.id);
+      const sv = fresh ? fresh.session_version || 0 : 0;
+      const token = sign({ uid: user.id, sv, exp: Math.floor(Date.now() / 1000) + MAX_AGE_SEC }, secret);
       res.setHeader('Set-Cookie', `${COOKIE}=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${MAX_AGE_SEC}`);
     },
 
@@ -72,13 +103,14 @@ function createAuth({ store, secret }) {
       res.setHeader('Set-Cookie', `${COOKIE}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0`);
     },
 
-    /** Returns the user, or an error string. Locks an IP for 15 minutes after 10 failures. */
-    login(req, username, password) {
+    /** Resolves the user, or an error string. Locks an IP for 15 minutes after 10 failures. */
+    async login(req, username, password) {
       const ip = req.socket.remoteAddress;
       const f = failures.get(ip);
       if (f && f.count >= 10 && f.until > Date.now()) return 'Juda ko\'p noto\'g\'ri urinish. 15 daqiqadan keyin urinib ko\'ring';
-      const user = store.getUserByName(String(username || '').trim());
-      if (!user || !verifyPassword(password, user.password_hash)) {
+      const user = store.getUserByName(String(username || '').trim().slice(0, 100));
+      const ok = await verifyPasswordAsync(String(password || '').slice(0, 200), user ? user.password_hash : DUMMY_HASH);
+      if (!user || !ok) {
         if (!f || f.until < Date.now()) failures.set(ip, { count: 1, until: Date.now() + 15 * 60000 });
         else f.count += 1;
         return 'Login yoki parol noto\'g\'ri';

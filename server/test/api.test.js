@@ -89,8 +89,8 @@ test('import, schedules, faces, scans, report with absences', async (t) => {
   store.db.prepare("UPDATE employees SET created_at = '2026-01-01T00:00:00Z'").run();
   store.reloadEmployees(false);
 
-  const dev = await call('POST', '/api/devices', { name: 'Kirish', ip: '10.0.0.5', password: 'x', direction: 'in' });
-  const devOut = await call('POST', '/api/devices', { name: 'Chiqish', ip: '10.0.0.6', password: 'x', direction: 'out' });
+  const dev = await call('POST', '/api/devices', { name: 'Kirish', ip: '127.0.0.1', password: 'x', direction: 'in' });
+  const devOut = await call('POST', '/api/devices', { name: 'Chiqish', ip: '127.0.0.1', password: 'x', direction: 'out' });
   assert.equal((await call('GET', '/api/devices')).body[0].password, undefined);
 
   // Monday 2026-01-12: Aziz (2nd shift) arrives 13:20 -> 20 min late, leaves 18:00
@@ -150,4 +150,48 @@ test('backup download works', async (t) => {
   const r = await call('GET', '/api/backup');
   assert.equal(r.status, 200);
   assert.ok(String(r.body).startsWith('SQLite format 3'));
+});
+
+test('security: sessions are revoked on logout/password change; bad cookies; device password re-entry', async (t) => {
+  const { server, call } = await setup();
+  t.after(() => server.close());
+  await call('POST', '/api/setup', { username: 'admin', password: 'parol123' });
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const login = async () => {
+    const r = await fetch(`${base}/api/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"username":"admin","password":"parol123"}' });
+    return r.headers.get('set-cookie').split(';')[0];
+  };
+  const get = (cookie, path = '/api/users') => fetch(base + path, { headers: { cookie } }).then((r) => r.status);
+  const c1 = await login();
+  const c2 = await login();
+  assert.equal(await get(c1), 200);
+  await fetch(`${base}/api/logout`, { method: 'POST', headers: { cookie: c1 } });
+  assert.equal(await get(c1), 401, 'old cookie revoked after logout');
+  assert.equal(await get(c2), 401, 'logout ends all sessions of the user');
+
+  assert.equal(await get('davomat_session=%E0%A4%A'), 401, 'malformed cookie -> 401, not 500');
+
+  await call('POST', '/api/login', { username: 'admin', password: 'parol123' });
+  // device: changing the IP without re-entering the password is refused (password never sent to a new address)
+  const d = await call('POST', '/api/devices', { name: 'K', ip: '192.168.1.10', password: 'p', direction: 'in' });
+  let r = await call('PUT', `/api/devices/${d.body.id}`, { name: 'K', ip: '192.168.1.11', direction: 'in' });
+  assert.equal(r.status, 400);
+  r = await call('PUT', `/api/devices/${d.body.id}`, { name: 'K2', ip: '192.168.1.10', direction: 'out' });
+  assert.equal(r.status, 200, 'same address keeps the saved password');
+  for (const ip of ['evil.example.com', 'localhost', '1.2.3', '300.1.1.1']) {
+    assert.equal((await call('POST', '/api/devices', { name: 'x', ip, password: 'p' })).status, 400, ip);
+  }
+  assert.equal((await call('POST', '/api/employees', { name: 'X', hourlyRate: '1e400' })).body.hourlyRate, 0);
+});
+
+test('first-run setup is refused when not addressed as localhost (DNS rebinding)', async (t) => {
+  const { server } = await setup();
+  t.after(() => server.close());
+  const http = require('node:http');
+  const status = await new Promise((resolve) => {
+    const req = http.request({ host: '127.0.0.1', port: server.address().port, path: '/api/setup', method: 'POST',
+      headers: { 'content-type': 'application/json', host: 'evil.example.com' } }, (res) => resolve(res.statusCode));
+    req.end('{"username":"admin","password":"parol123"}');
+  });
+  assert.equal(status, 403);
 });

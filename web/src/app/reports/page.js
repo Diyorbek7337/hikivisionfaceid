@@ -24,7 +24,12 @@ export default function Reports() {
   const showPay = summary.some((s) => s.pay > 0);
 
   function exportCsv() {
-    const cell = (v) => { const s = String(v ?? ''); return /[;"\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+    const cell = (v) => {
+      let s = String(v ?? '');
+      // Text starting with = + - @ would run as a formula in Excel (CSV injection); numbers are fine.
+      if (typeof v === 'string' && /^[=+\-@\t\r]/.test(s)) s = `'${s}`;
+      return /[;"\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
     const out = [];
     out.push([`Davomat hisoboti ${data.from} — ${data.to}`]);
     out.push([]);

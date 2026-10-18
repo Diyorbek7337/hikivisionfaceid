@@ -9,11 +9,42 @@ function cleanIp(ip) {
   return String(ip || '').replace(/^::ffff:/, '');
 }
 
-/** Finds the terminal for a push: by the id in the URL, or by the sender's IP address. */
+const isIPv4 = (s) => /^\d{1,3}(\.\d{1,3}){3}$/.test(String(s || ''));
+
+/**
+ * Finds the terminal for a push. A push is accepted only from the terminal's own IP address,
+ * so knowing the URL is not enough to forge attendance from another computer on the network.
+ * Returns { device } or { reason }.
+ */
 function findDevice(store, deviceId, remoteIp) {
-  if (deviceId && store.devices.has(deviceId)) return store.devices.get(deviceId);
-  for (const d of store.devices.values()) if (d.ip && d.ip === remoteIp) return d;
-  return null;
+  const byId = deviceId ? store.devices.get(deviceId) : null;
+  if (byId) {
+    if (!isIPv4(byId.ip) || byId.ip === remoteIp) return { device: byId };
+    return { reason: `URL "${byId.name}" terminaliniki, lekin so'rov boshqa manzildan (${remoteIp}) keldi` };
+  }
+  for (const d of store.devices.values()) if (d.ip && d.ip === remoteIp) return { device: d };
+  return { reason: `noma'lum manzil ${remoteIp}` };
+}
+
+/** Rejects pushes from unknown senders before their body is read (no memory spent on them). */
+function createPushGuard({ store, log = console }) {
+  const lastWarn = new Map();
+  return (req, res, next) => {
+    const remoteIp = cleanIp(req.socket.remoteAddress);
+    const found = findDevice(store, req.params.deviceId, remoteIp);
+    if (found.device) {
+      req.device = found.device;
+      return next();
+    }
+    const now = Date.now();
+    if (now - (lastWarn.get(remoteIp) || 0) > 60 * 1000) {
+      lastWarn.set(remoteIp, now);
+      if (lastWarn.size > 1000) lastWarn.clear();
+      log.warn(`⚠️  Event rad etildi: ${found.reason}. Terminal bo'lsa — Terminallar sahifasida uning IP manzilini tekshiring.`);
+    }
+    res.on('finish', () => req.destroy());
+    return res.status(403).set('Connection', 'close').end();
+  };
 }
 
 function createPushHandler({ store, processor, log = console, samplePath = null }) {
@@ -30,11 +61,7 @@ function createPushHandler({ store, processor, log = console, samplePath = null 
     res.send('OK');
     await store.ready;
     const remoteIp = cleanIp(req.socket.remoteAddress);
-    const device = findDevice(store, req.params.deviceId, remoteIp);
-    if (!device) {
-      log.warn(`⚠️  Noma'lum terminaldan event keldi (${remoteIp}, ${req.originalUrl}) — web app'da terminalni qo'shing`);
-      return;
-    }
+    const { device } = req;
     store.updateDevice(device.id, { lastPushAt: Date.now() }).catch(() => {});
     if (!seen.has(device.id)) {
       seen.add(device.id);
@@ -86,15 +113,17 @@ function createServer({ store, cfg, telegram, api, processor, log = console }) {
   });
   app.locals.push = push;
   app.locals.processor = proc;
-  const raw = express.raw({ type: () => true, limit: '20mb' });
-  app.post('/hik/:deviceId', raw, push);
-  app.post('/hik/:deviceId/*', raw, push);
+  // Hikvision snapshots are ~100–300 KB; 2 MB is plenty.
+  const raw = express.raw({ type: () => true, limit: '2mb' });
+  const guard = createPushGuard({ store, log });
+  app.post('/hik/:deviceId', guard, raw, push);
+  app.post('/hik/:deviceId/*', guard, raw, push);
   // Terminal configured with an empty/other URL: identify it by IP.
-  app.post('/ISAPI/*', raw, push);
+  app.post('/ISAPI/*', guard, raw, push);
 
   if (api) app.use('/api', api);
   // A terminal configured with some other URL path: accept the push anyway and identify it by IP.
-  app.post(/^\/(?!api\/).*/, raw, push);
+  app.post(/^\/(?!api\/).*/, guard, raw, push);
 
   // Web app (Next.js static export).
   if (fs.existsSync(cfg.webDir)) {
@@ -110,4 +139,4 @@ function createServer({ store, cfg, telegram, api, processor, log = console }) {
   return app;
 }
 
-module.exports = { createServer, createPushHandler, findDevice };
+module.exports = { createServer, createPushHandler, findDevice, isIPv4 };

@@ -128,11 +128,18 @@ function openDatabase(file) {
   const db = new DatabaseSync(file);
   db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
   db.exec(SCHEMA);
+  migrate(db);
   const count = db.prepare('SELECT COUNT(*) AS n FROM schedules').get().n;
   if (!count) {
     db.prepare('INSERT INTO schedules (name, days) VALUES (?, ?)').run('Asosiy jadval', JSON.stringify(DEFAULT_SCHEDULE_DAYS));
   }
   return db;
+}
+
+/** Small additive migrations for databases created by earlier versions. */
+function migrate(db) {
+  const cols = db.prepare('PRAGMA table_info(users)').all().map((c) => c.name);
+  if (!cols.includes('session_version')) db.exec('ALTER TABLE users ADD COLUMN session_version INTEGER NOT NULL DEFAULT 0');
 }
 
 const newDeviceId = () => crypto.randomBytes(10).toString('hex');

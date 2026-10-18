@@ -60,3 +60,14 @@ test('lock-out is reported clearly', async (t) => {
   await assert.rejects(bad.deviceInfo(), /parol/);
   await assert.rejects(bad.deviceInfo(), /blokladi \(~30 daqiqa\)/);
 });
+
+test('never sends Basic credentials unless the terminal asks for Basic', async (t) => {
+  const http = require('node:http');
+  const seen = [];
+  const srv = http.createServer((req, res) => { seen.push(req.headers.authorization || ''); res.statusCode = 401; res.end(); });
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  t.after(() => srv.close());
+  const c = new IsapiClient({ host: '127.0.0.1', port: srv.address().port, username: 'admin', password: 'TermPass1!' });
+  await assert.rejects(c.deviceInfo());
+  assert.ok(seen.every((h) => !/^Basic/i.test(h)), `leaked: ${seen.join(',')}`);
+});

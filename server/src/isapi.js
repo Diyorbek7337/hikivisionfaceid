@@ -84,7 +84,7 @@ class IsapiClient {
   /**
    * Raw request with HTTP Digest (or Basic) auth; returns { status, text, contentType }.
    * Some firmwares answer a re-used nonce with a bare 401 (no WWW-Authenticate), so we then ask for a
-   * fresh challenge with an unauthenticated request, and as a last resort try Basic auth.
+   * fresh challenge with an unauthenticated request. Basic auth is used only when the terminal asks for it.
    */
   request(method, uri, opts = {}) {
     // One request at a time per terminal: digest nonce counters must arrive in order.
@@ -96,27 +96,26 @@ class IsapiClient {
   async requestNow(method, uri, { body, contentType } = {}) {
     const headers = contentType ? { 'Content-Type': contentType } : {};
     let res;
+    let consumedText = '';
+    const consume = async (r) => { consumedText = await r.text().catch(() => ''); };
     try {
       res = await this.send(method, uri, body, headers);
       if (res.status === 401) {
-        await res.arrayBuffer().catch(() => {});
+        await consume(res);
         let learned = this.learnChallenge(res);
         if (!learned && this.challenge) {
           this.challenge = null; // stale cached nonce: start over without credentials
           res = await this.send(method, uri, body, headers);
           if (res.status === 401) {
-            await res.arrayBuffer().catch(() => {});
+            await consume(res);
             learned = this.learnChallenge(res);
           }
         }
-        if (res.status === 401) {
-          if (!learned) this.challenge = { scheme: 'basic' };
+        if (res.status === 401 && learned) {
           res = await this.send(method, uri, body, headers);
-          if (res.status === 401 && !learned) {
-            // Basic did not help either: forget it so the next request asks for a challenge again.
-            this.challenge = null;
-          }
         }
+        // Never fall back to Basic on our own: it would send the password in clear text to whatever
+        // answers at that address (e.g. another device that got the terminal's IP).
       }
     } catch (err) {
       if (err instanceof IsapiError) throw err;
@@ -125,7 +124,7 @@ class IsapiClient {
       e.connection = true;
       throw e;
     }
-    const text = await res.text();
+    const text = res.bodyUsed ? consumedText : await res.text();
     if (res.status === 401) {
       this.challenge = null;
       throw IsapiClient.authError(res, text);
