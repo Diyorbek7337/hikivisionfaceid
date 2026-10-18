@@ -44,3 +44,21 @@ test('old-format port file (possibly a temporary port) is not trusted', async ()
   const { savedHomePort } = require('../src/listen');
   assert.equal(savedHomePort({ dataDir }), null);
 });
+
+test('netstat output: finds the program listening on a port (English and Russian Windows)', () => {
+  const { parseNetstat, portOwner } = require('../src/net');
+  const en = `
+Active Connections
+
+  Proto  Local Address          Foreign Address        State           PID
+  TCP    0.0.0.0:135            0.0.0.0:0              LISTENING       1012
+  TCP    127.0.0.1:3001         127.0.0.1:52011        ESTABLISHED     9999
+  TCP    0.0.0.0:3001           0.0.0.0:0              LISTENING       4321
+  TCP    [::]:3001              [::]:0                 LISTENING       4321
+`;
+  const ru = '  TCP    0.0.0.0:30010          0.0.0.0:0              ПРОСЛУШИВАНИЕ   77\r\n  TCP    0.0.0.0:3001           0.0.0.0:0              ПРОСЛУШИВАНИЕ   555\r\n';
+  assert.equal(parseNetstat(en, 3001), 4321);
+  assert.equal(parseNetstat(ru, 3001), 555);
+  assert.equal(parseNetstat(en, 3002), null);
+  assert.equal(portOwner(3001, 'linux'), null);
+});

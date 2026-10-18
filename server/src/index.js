@@ -35,7 +35,7 @@ const { createTelegram } = require('./telegram');
 const { createTgApi } = require('./tgapp');
 const { createBotHandler } = require('./bot');
 const { startDailyReport } = require('./report');
-const { lanAddresses } = require('./net');
+const { lanAddresses, portOwner } = require('./net');
 const { startListening } = require('./listen');
 const pkg = require('../package.json');
 
@@ -89,12 +89,17 @@ startListening(app, cfg).then((started) => {
   cfg.port = port;
   console.log(`🚀 Davomat tizimi ishga tushdi (v${pkg.version})`);
   if (started.mode === 'temporary') {
+    const owner = portOwner(started.home);
     console.warn(`
 ⚠️⚠️  DIQQAT: tizim porti ${started.home}, lekin uni BOSHQA dastur band qilgan.
    Hozircha vaqtincha ${port}-portda ishlayapti — terminallar ${started.home}-portga yuborgani uchun
    ularning HTTP Listening eventlari yetib kelmaydi (terminal xotirasidan o'qish baribir ishlaydi).
    ${started.home}-portni band qilgan dasturni yoping va tizimni qayta ishga tushiring.
-   Kim band qilganini ko'rish: cmd → netstat -ano | findstr :${started.home}
+${owner
+    ? `   👉 ${started.home}-portni band qilgan dastur: ${owner.name || 'noma\'lum'} (PID ${owner.pid}).
+      Shu dasturni yoping (node.exe bo'lsa — ochiq qolgan boshqa qora oyna yoki eski nusxa).
+      Topa olmasangiz: administrator cmd → taskkill /PID ${owner.pid} /F`
+    : `   Kim band qilganini ko'rish: cmd → netstat -ano | findstr :${started.home}`}
 `);
   } else if (started.mode === 'first') {
     console.log(`   Tizim porti: ${port} (doimiy — terminallarda shu port yoziladi)`);
