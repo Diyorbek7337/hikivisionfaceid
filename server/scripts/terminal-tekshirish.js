@@ -4,7 +4,7 @@ const { IsapiClient } = require('../src/isapi');
 
 async function main() {
   const [ip, username = 'admin', password = ''] = process.argv.slice(2);
-  if (!ip) {
+  if (!ip || !/^[\w.-]+(:\d+)?$/.test(ip) || !/[.:]/.test(ip)) {
     console.log('Ishlatish: node scripts/terminal-tekshirish.js 192.168.31.68 admin PAROL');
     process.exit(1);
   }
