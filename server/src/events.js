@@ -14,6 +14,14 @@ function eventKey(deviceId, ev) {
 
 function createEventProcessor({ store, tz, telegram, log = console }) {
   let queue = Promise.resolve();
+  const lastWarn = new Map(); // same warning at most once per 10 minutes
+  const warnOnce = (key, text) => {
+    const now = Date.now();
+    if (now - (lastWarn.get(key) || 0) < 10 * 60 * 1000) return;
+    lastWarn.set(key, now);
+    if (lastWarn.size > 5000) lastWarn.clear();
+    log.log(text);
+  };
 
   async function handle(device, ev) {
     // Hikvision major types: 1 alarm, 2 exception, 3 operation (e.g. our own status checks: 3/1028), 5 access event.
@@ -32,7 +40,7 @@ function createEventProcessor({ store, tz, telegram, log = console }) {
     };
     if (!ev.employeeNo) {
       await store.saveEvent(key, { ...base, action: 'not_recognized' });
-      log.log(`ℹ️  ${device.name}: yuz tanilmadi`);
+      warnOnce(`nr:${device.id}`, `ℹ️  ${device.name}: yuz tanilmadi`);
       return 'not_recognized';
     }
     const result = await processScan(store, store.settings, tz, device, ev);
@@ -40,7 +48,10 @@ function createEventProcessor({ store, tz, telegram, log = console }) {
     if (result.action === 'checkin' || result.action === 'checkout') {
       log.log(`✅ ${result.employee.name}: ${result.action === 'checkin' ? 'keldi' : 'ketdi'} (${device.name})`);
     } else if (result.action === 'unknown_employee') {
-      log.log(`ℹ️  ${device.name}: terminalda ${ev.employeeNo}-raqamli odam bor, tizimda yo'q`);
+      warnOnce(`ue:${device.id}:${ev.employeeNo}`,
+        `ℹ️  ${device.name}: terminalda ${ev.employeeNo}-raqamli odam bor, tizimda yo'q (Terminallar → "Qayta yuborish" uni terminaldan o'chiradi)`);
+    } else if (result.action === 'repeat_in') {
+      log.log(`ℹ️  ${result.employee.name}: qayta kirish — birinchi kelish vaqti saqlanadi (${device.name})`);
     } else if (result.action === 'before_registration') {
       // old event from the terminal's memory: ignore quietly
     } else if (result.action !== 'duplicate') {
