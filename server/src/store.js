@@ -469,6 +469,18 @@ class LocalStore extends EventEmitter {
     }));
   }
 
+  /** Removes events a terminal reported from before it was added here (its earlier memory). Returns the count. */
+  pruneEventsBeforeDevices(boundAtOf) {
+    let n = 0;
+    for (const dev of this.devices.values()) {
+      const bound = boundAtOf(dev);
+      if (!bound) continue;
+      const floor = new Date(bound - 5 * 60 * 1000).toISOString();
+      n += Number(this.q('DELETE FROM events WHERE device_id = ? AND time < ?').run(dev.id, floor).changes);
+    }
+    return n;
+  }
+
   async pruneEvents(days = 90) {
     this.q('DELETE FROM events WHERE received_at < ?').run(new Date(Date.now() - days * 86400000).toISOString());
   }

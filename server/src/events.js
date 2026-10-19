@@ -12,6 +12,16 @@ function eventKey(deviceId, ev) {
   return `${deviceId}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
+/**
+ * When this terminal record was pointed at its current physical terminal (added here, or replaced);
+ * 0 when unknown. Events from before that are the terminal's earlier memory (an earlier owner's staff,
+ * whose numbers could match our new employees) — it re-sends them when it reconnects.
+ */
+function deviceBoundAt(dev) {
+  const added = dev.createdAt ? new Date(String(dev.createdAt).replace(' ', 'T').replace(/(\d)$/, '$1Z')).getTime() : 0;
+  return Math.max(Number.isFinite(added) ? added : 0, Number(dev.boundAt) || 0);
+}
+
 function createEventProcessor({ store, tz, telegram, log = console }) {
   let queue = Promise.resolve();
   const lastWarn = new Map(); // same warning at most once per 10 minutes
@@ -28,6 +38,9 @@ function createEventProcessor({ store, tz, telegram, log = console }) {
     // Only 5 is about people passing; the rest is the terminal's own log and is ignored quietly.
     if (ev.major != null && ev.major !== 5) return 'ignored';
     if (!ev.employeeNo && ev.minor !== 76) return 'ignored'; // door opened/closed etc. come with every scan
+    // The terminal's memory from before it was added here: not stored, not counted.
+    const bound = deviceBoundAt(device);
+    if (bound && ev.time && ev.time.getTime() < bound - 5 * 60 * 1000) return 'old';
 
     const key = eventKey(device.id, ev);
     if (await store.eventExists(key)) return 'known';
@@ -77,4 +90,4 @@ function createEventProcessor({ store, tz, telegram, log = console }) {
   return processor;
 }
 
-module.exports = { createEventProcessor, eventKey };
+module.exports = { createEventProcessor, eventKey, deviceBoundAt };

@@ -92,3 +92,23 @@ test('a push with a valid URL but from another computer is rejected (no forged a
   assert.equal(store.events.size, 0);
   assert.equal(store.attendance.size, 0);
 });
+
+test('a terminal re-sending its old memory: events from before it was added are dropped', async () => {
+  const { openDatabase } = require('../src/db');
+  const { LocalStore } = require('../src/store');
+  const { createEventProcessor, deviceBoundAt } = require('../src/events');
+  const store = new LocalStore(openDatabase(':memory:'));
+  const id = store.saveDevice({ name: 'Chiqish', ip: '10.0.0.5', direction: 'out' });
+  store.db.prepare("UPDATE devices SET created_at = '2026-10-18T00:00:00Z' WHERE id = ?").run(id);
+  store.reloadDevices(false);
+  const dev = store.getDevice(id);
+  const proc = createEventProcessor({ store, tz: 'Asia/Tashkent', telegram: null, log: { log() {}, warn() {}, error() {} } });
+  assert.equal(await proc.process(dev, { major: 5, minor: 76, time: new Date('2026-08-28T18:20:00+05:00'), serialNo: 1 }), 'old');
+  assert.equal(await proc.process(dev, { major: 5, minor: 75, employeeNo: '11746', time: new Date('2026-08-20T18:31:00+05:00'), serialNo: 2 }), 'old');
+  assert.equal(await proc.process(dev, { major: 5, minor: 76, time: new Date('2026-10-19T09:00:00+05:00'), serialNo: 3 }), 'not_recognized');
+  assert.equal(store.listEvents().length, 1);
+  // ones stored by an earlier version are cleaned up at start
+  store.db.prepare("INSERT INTO events (id, received_at, device_id, time, action) VALUES ('x', '2026-10-19T00:00:00Z', ?, '2026-08-01T10:00:00.000Z', 'not_recognized')").run(id);
+  assert.equal(store.pruneEventsBeforeDevices(deviceBoundAt), 1);
+  assert.equal(store.listEvents().length, 1);
+});

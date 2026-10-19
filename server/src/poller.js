@@ -5,6 +5,7 @@
  * (some DS-K1T331W firmware), and picks up scans made while this computer was off.
  */
 const { isoWithOffset } = require('./time');
+const { deviceBoundAt } = require('./events');
 
 const OVERLAP_MS = 2 * 60 * 1000; // re-read the last 2 minutes: late-written events are not missed (duplicates are skipped)
 
@@ -71,10 +72,7 @@ class EventPoller {
     const now = Date.now();
     // Never read events from before the terminal was added here: its log may hold an earlier owner's
     // events whose employee numbers would match our new employees.
-    const added = dev.createdAt ? new Date(String(dev.createdAt).replace(' ', 'T').replace(/(\d)$/, '$1Z')).getTime() : now;
-    // boundAt: when this record was pointed at the current physical terminal (set when it is replaced)
-    const bound = Math.max(Number.isFinite(added) ? added : now, Number(dev.boundAt) || 0);
-    const floor = Math.max(bound, now - 7 * 24 * 3600 * 1000);
+    const floor = Math.max(deviceBoundAt(dev) || now, now - 7 * 24 * 3600 * 1000);
     const cursor = Math.max(Number(dev.pollCursor) || floor, floor);
     const startTime = isoWithOffset(new Date(Math.max(cursor - OVERLAP_MS, floor)), this.tz);
     // A terminal whose clock runs ahead writes "future" times: search a day ahead so they are not missed.

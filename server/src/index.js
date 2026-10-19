@@ -33,6 +33,7 @@ const { createAuth } = require('./auth');
 const { createBackup } = require('./backup');
 const { createTelegram } = require('./telegram');
 const { createTgApi } = require('./tgapp');
+const { deviceBoundAt } = require('./events');
 const { createBotHandler } = require('./bot');
 const { startDailyReport } = require('./report');
 const { lanAddresses, portOwner } = require('./net');
@@ -59,6 +60,11 @@ function clientFor(dev) {
   return clients.get(key);
 }
 
+// Events a terminal re-sent from before it was added here (an earlier owner's or setup-time log).
+{
+  const removed = store.pruneEventsBeforeDevices(deviceBoundAt);
+  if (removed) console.log(`🧹 Terminal xotirasidagi eski eventlar o'chirildi: ${removed} ta`);
+}
 const sync = new SyncEngine({ store, clientFor });
 const monitor = new DeviceMonitor({ store, clientFor, tz: cfg.timezone, onOnline: () => sync.schedule() });
 const telegram = createTelegram({ token: cfg.botToken, adminIds: cfg.adminTelegramIds });

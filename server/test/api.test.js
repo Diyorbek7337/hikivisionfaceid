@@ -93,6 +93,9 @@ test('import, schedules, faces, scans, report with absences', async (t) => {
   const dev = await call('POST', '/api/devices', { name: 'Kirish', ip: '127.0.0.1', password: 'x', direction: 'in' });
   const devOut = await call('POST', '/api/devices', { name: 'Chiqish', ip: '127.0.0.1', port: 81, password: 'x', direction: 'out' });
   assert.equal((await call('GET', '/api/devices')).body[0].password, undefined);
+  // terminals "added" before the test dates (events from before that are ignored as old terminal memory)
+  store.db.prepare("UPDATE devices SET created_at = '2026-01-01T00:00:00Z'").run();
+  store.reloadDevices(false);
 
   // Monday 2026-01-12: Aziz (2nd shift) arrives 13:20 -> 20 min late, leaves 18:00
   await push(dev.body.id, aziz.employeeNo, '2026-01-12T13:20:00+05:00', 1);
