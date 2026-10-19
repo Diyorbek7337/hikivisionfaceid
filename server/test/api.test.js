@@ -308,3 +308,52 @@ test('students: classes, import per class, same name in two classes, separate da
   assert.match(text, /Xodimlar/);
   assert.doesNotMatch(text, /Karimova Laylo/, 'students are not listed by name');
 });
+
+test('class teacher: only own classes (list, faces, attendance), nothing else', async (t) => {
+  const { store, server, call } = await setup();
+  t.after(() => server.close());
+  await call('POST', '/api/setup', { username: 'admin', password: 'parol123' });
+  await call('POST', '/api/employees/import', { kind: 'student', rows: [{ name: 'Ali', className: '9-A' }, { name: 'Vali', className: '9-B' }] });
+  await call('POST', '/api/employees', { name: 'Ustoz Karimova', position: 'O\'qituvchi' });
+  assert.equal((await call('POST', '/api/users', { username: 'karimova', password: 'parol123', role: 'teacher', classes: '' })).status, 400);
+  const u = await call('POST', '/api/users', { username: 'karimova', password: 'parol123', name: 'Karimova', role: 'teacher', classes: '9 a' });
+  assert.equal(u.status, 200);
+  assert.deepEqual(store.getUser(u.body.id).classes, ['9-A']);
+  const all = (await call('GET', '/api/employees')).body;
+  const ali = all.find((e) => e.name === 'Ali');
+  const vali = all.find((e) => e.name === 'Vali');
+
+  await call('POST', '/api/logout');
+  const login = await call('POST', '/api/login', { username: 'karimova', password: 'parol123' });
+  assert.equal(login.body.user.role, 'teacher');
+  const mine = (await call('GET', '/api/employees')).body;
+  assert.deepEqual(mine.map((e) => e.name), ['Ali']);
+  assert.deepEqual((await call('GET', '/api/today')).body.rows.map((r) => r.employee.name), ['Ali']);
+  assert.deepEqual((await call('GET', '/api/today')).body.devices, []);
+  assert.deepEqual((await call('GET', '/api/report')).body.summary.map((x) => x.name), ['Ali']);
+  assert.equal((await call('PUT', `/api/employees/${ali.id}/face`, { image: JPEG })).status, 200);
+  assert.equal((await call('PUT', `/api/employees/${vali.id}/face`, { image: JPEG })).status, 403, 'other class');
+  assert.equal((await call('GET', `/api/employees/${vali.id}/face.jpg`)).status, 403);
+  for (const [m, p, b] of [['GET', '/api/devices'], ['GET', '/api/users'], ['PUT', `/api/employees/${ali.id}`, { name: 'X' }],
+    ['DELETE', `/api/employees/${ali.id}`], ['PUT', '/api/attendance', {}], ['PUT', '/api/settings', {}], ['GET', '/api/backup'],
+    ['POST', '/api/employees', { name: 'Y' }], ['GET', '/api/events'], ['POST', '/api/users', { username: 'hack', password: 'parol123' }]]) {
+    assert.equal((await call(m, p, b)).status, 403, `${m} ${p}`);
+  }
+  const st = (await call('GET', '/api/status')).body;
+  assert.equal(st.settings.telegramViewers, undefined, 'no admin settings for teachers');
+  // own password: old one required
+  assert.equal((await call('PUT', '/api/users/me/password', { oldPassword: 'xato', password: 'yangi123' })).status, 400);
+  assert.equal((await call('PUT', '/api/users/me/password', { oldPassword: 'parol123', password: 'yangi123' })).status, 200);
+  assert.equal((await call('GET', '/api/employees')).status, 200, 'still logged in after own password change');
+
+  // the last administrator cannot be demoted or deleted
+  await call('POST', '/api/logout');
+  await call('POST', '/api/login', { username: 'admin', password: 'parol123' });
+  const adminId = store.getUserByName('admin').id;
+  assert.equal((await call('PUT', `/api/users/${adminId}`, { role: 'teacher', classes: '9-A' })).status, 400);
+  assert.throws(() => store.updateUser(adminId, { role: 'teacher', classes: ['9-A'] }), /administrator/);
+  // changing a teacher's classes ends their sessions
+  const before = store.getUser(u.body.id).session_version;
+  assert.equal((await call('PUT', `/api/users/${u.body.id}`, { role: 'teacher', classes: ['9-A', '9-B'], name: 'Karimova' })).status, 200);
+  assert.ok(store.getUser(u.body.id).session_version > before);
+});

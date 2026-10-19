@@ -104,6 +104,8 @@ function createAuth({ store, secret }) {
     },
 
     /** Resolves the user, or an error string. Locks an IP for 15 minutes after 10 failures. */
+    verifyPassword: verifyPasswordAsync,
+
     async login(req, username, password) {
       const ip = req.socket.remoteAddress;
       const f = failures.get(ip);
@@ -116,7 +118,7 @@ function createAuth({ store, secret }) {
         return 'Login yoki parol noto\'g\'ri';
       }
       failures.delete(ip);
-      return { id: user.id, username: user.username, name: user.name };
+      return { id: user.id, username: user.username, name: user.name, role: user.role, classes: user.classes };
     },
 
     require(req, res, next) {

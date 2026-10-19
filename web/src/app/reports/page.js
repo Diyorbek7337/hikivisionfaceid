@@ -20,7 +20,9 @@ export default function Reports() {
   const [only, setOnly] = useState('');
   const { data, error, loading, reload } = useApi(`/report?${query}`);
   const { data: employees } = useApi('/employees');
-  const [kind, setKind] = useState('staff');
+  const app = useApp();
+  const teacher = !!(app && app.user && app.user.role === 'teacher');
+  const [kind, setKind] = useState(teacher ? 'student' : 'staff');
   const [cls, setCls] = useState('');
   const hasStudents = (employees || []).some((e) => e.kind === 'student');
   const students = hasStudents && kind === 'student';
@@ -79,7 +81,7 @@ export default function Reports() {
     <>
       <h1>Davomat hisoboti</h1>
       <ErrorBox error={error} />
-      {hasStudents && <KindTabs value={kind} onChange={(k) => { setKind(k); setCls(''); setEmployeeId(''); }} />}
+      {hasStudents && !teacher && <KindTabs value={kind} onChange={(k) => { setKind(k); setCls(''); setEmployeeId(''); }} />}
       <div className="card row">
         <label>Dan<input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></label>
         <label>Gacha<input type="date" value={to} onChange={(e) => setTo(e.target.value)} /></label>
@@ -98,7 +100,7 @@ export default function Reports() {
         </button>
         <button className="secondary" onClick={exportCsv} disabled={!data || data.from !== from || data.to !== to}
           title={data && (data.from !== from || data.to !== to) ? 'Avval "Ko\'rsatish" ni bosing' : ''}>Excel (CSV)</button>
-        <button className="secondary" onClick={() => setEditing({ date: today })}>+ Qo&apos;lda qo&apos;shish</button>
+        {!teacher && <button className="secondary" onClick={() => setEditing({ date: today })}>+ Qo&apos;lda qo&apos;shish</button>}
       </div>
 
       <div className="card">
@@ -158,7 +160,7 @@ export default function Reports() {
                 <td>{r.earlyMinutes > 0 && <span className="warn">{formatDuration(r.earlyMinutes)}</span>}</td>
                 <td>{r.workedMinutes != null ? formatDuration(r.workedMinutes) : ''}</td>
                 {showPay && <td className="nw">{r.pay ? money(r.pay) : ''}</td>}
-                <td><button className="secondary small" onClick={() => setEditing(r)}>Tahrirlash</button></td>
+                <td>{!teacher && <button className="secondary small" onClick={() => setEditing(r)}>Tahrirlash</button>}</td>
               </tr>
             ))}
             {data && !records.length && <tr><td colSpan={10} className="muted">Ma&apos;lumot yo&apos;q</td></tr>}

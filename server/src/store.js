@@ -108,6 +108,11 @@ function mapAttendance(r) {
   return rec;
 }
 
+function mapUser(r) {
+  const { classes, ...rest } = r;
+  return { ...rest, role: r.role === 'teacher' ? 'teacher' : 'admin', classes: json(classes, []) };
+}
+
 function mapSchedule(r) {
   return { id: r.id, name: r.name, type: r.type === 'flexible' ? 'flexible' : 'fixed', days: json(r.days, {}) };
 }
@@ -491,19 +496,35 @@ class LocalStore extends EventEmitter {
 
   // ---------- users ----------
   countUsers() { return this.q('SELECT COUNT(*) AS n FROM users').get().n; }
-  listUsers() { return this.q('SELECT id, username, name, created_at FROM users ORDER BY id').all().map((r) => ({ ...r })); }
-  getUserByName(username) { const r = this.q('SELECT * FROM users WHERE username = ?').get(username); return r ? { ...r } : null; }
-  getUser(id) { const r = this.q('SELECT id, username, name, session_version FROM users WHERE id = ?').get(id); return r ? { ...r } : null; }
+  countAdmins() { return this.q("SELECT COUNT(*) AS n FROM users WHERE role = 'admin'").get().n; }
+  listUsers() {
+    return this.q('SELECT id, username, name, role, classes, created_at FROM users ORDER BY id').all().map(mapUser);
+  }
+  getUserByName(username) { const r = this.q('SELECT * FROM users WHERE username = ?').get(username); return r ? mapUser(r) : null; }
+  getUser(id) { const r = this.q('SELECT id, username, name, role, classes, session_version FROM users WHERE id = ?').get(id); return r ? mapUser(r) : null; }
   /** Invalidates all existing sessions of the user (logout, password change). */
   bumpSessionVersion(id) { this.q('UPDATE users SET session_version = session_version + 1 WHERE id = ?').run(id); }
-  createUser({ username, name, passwordHash }) {
-    return Number(this.q('INSERT INTO users (username, name, password_hash) VALUES (?, ?, ?)').run(username, name || null, passwordHash).lastInsertRowid);
+  createUser({ username, name, passwordHash, role = 'admin', classes = [] }) {
+    return Number(this.q('INSERT INTO users (username, name, password_hash, role, classes) VALUES (?, ?, ?, ?, ?)')
+      .run(username, name || null, passwordHash, role === 'teacher' ? 'teacher' : 'admin', JSON.stringify(classes)).lastInsertRowid);
+  }
+  /** Role or classes changed: existing sessions end so the new rights apply at once. */
+  updateUser(id, { name, role, classes }) {
+    const u = this.getUser(id);
+    if (!u) throw Object.assign(new Error('Foydalanuvchi topilmadi'), { status: 404 });
+    if (u.role === 'admin' && role !== 'admin' && this.countAdmins() <= 1) {
+      throw Object.assign(new Error('Kamida bitta administrator qolishi kerak'), { status: 400 });
+    }
+    this.q('UPDATE users SET name = ?, role = ?, classes = ?, session_version = session_version + 1 WHERE id = ?')
+      .run(name || null, role === 'teacher' ? 'teacher' : 'admin', JSON.stringify(classes || []), id);
   }
   setUserPassword(id, passwordHash) {
     this.q('UPDATE users SET password_hash = ?, session_version = session_version + 1 WHERE id = ?').run(passwordHash, id);
   }
   deleteUser(id) {
     if (this.countUsers() <= 1) throw Object.assign(new Error('Oxirgi foydalanuvchini o\'chirib bo\'lmaydi'), { status: 400 });
+    const u = this.getUser(id);
+    if (u && u.role === 'admin' && this.countAdmins() <= 1) throw Object.assign(new Error('Oxirgi administratorni o\'chirib bo\'lmaydi'), { status: 400 });
     this.q('DELETE FROM users WHERE id = ?').run(id);
   }
 

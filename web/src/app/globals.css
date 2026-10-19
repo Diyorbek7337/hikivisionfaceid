@@ -152,3 +152,4 @@ tr.clickable { cursor: pointer; } tr.clickable:hover td { background: var(--bg);
 .tabs button { background: transparent; color: var(--text); border: 0; padding: 6px 14px; border-radius: 8px; }
 .tabs button.on { background: var(--brand); color: var(--brand-text); }
 tr.selected-row td { background: var(--warn-bg); }
+.big-shot { width: 100%; padding: 28px 12px; font-size: 20px; border-radius: 14px; }

@@ -1,6 +1,7 @@
 'use client';
 import { useState } from 'react';
 import Link from 'next/link';
+import { useApp } from '@/components/AppShell';
 import { useApi } from '@/lib/api';
 import { localTime, formatDuration, normText } from '@/lib/time';
 import { DeviceStatus, ErrorBox } from '@/components/ui';
@@ -20,7 +21,9 @@ export default function Dashboard() {
   const { data, error } = useApi('/today', { refreshMs: 10000 });
   const [filter, setFilter] = useState('all');
   const [q, setQ] = useState('');
-  const [kind, setKind] = useState('staff');
+  const app = useApp();
+  const teacher = !!(app && app.user && app.user.role === 'teacher');
+  const [kind, setKind] = useState(teacher ? 'student' : 'staff');
   const [cls, setCls] = useState('');
   if (!data) return <><ErrorBox error={error} /><p className="muted">Yuklanmoqda…</p></>;
 
@@ -47,7 +50,7 @@ export default function Dashboard() {
     <>
       <h1>Bugun — {data.date}</h1>
       <ErrorBox error={error} />
-      {hasStudents && <KindTabs value={kind} onChange={(k) => { setKind(k); setCls(''); setFilter('all'); }} />}
+      {hasStudents && !teacher && <KindTabs value={kind} onChange={(k) => { setKind(k); setCls(''); setFilter('all'); }} />}
       {students && (
         <div className="card">
           <div className="row between">
@@ -100,6 +103,7 @@ export default function Dashboard() {
           </tbody>
         </table>
       </div>
+      {!teacher && (
       <div className="card">
         <h2>Terminallar</h2>
         <table>
@@ -115,6 +119,7 @@ export default function Dashboard() {
           </tbody>
         </table>
       </div>
+      )}
     </>
   );
 }

@@ -149,6 +149,9 @@ function openDatabase(file) {
 function migrate(db) {
   const cols = db.prepare('PRAGMA table_info(users)').all().map((c) => c.name);
   if (!cols.includes('session_version')) db.exec('ALTER TABLE users ADD COLUMN session_version INTEGER NOT NULL DEFAULT 0');
+  // 'admin' (everything) or 'teacher' (class teacher: only the students of their classes — faces, attendance)
+  if (!cols.includes('role')) db.exec("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'admin'");
+  if (!cols.includes('classes')) db.exec("ALTER TABLE users ADD COLUMN classes TEXT NOT NULL DEFAULT '[]'");
   const empCols = db.prepare('PRAGMA table_info(employees)').all().map((c) => c.name);
   // JSON {"type": "fixed"|"flexible", "days": {...}} when the employee has their own schedule; NULL = uses schedule_id
   const schedCols = db.prepare('PRAGMA table_info(schedules)').all().map((c) => c.name);

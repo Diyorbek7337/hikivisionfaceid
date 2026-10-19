@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import { api, useApi } from '@/lib/api';
 import { useApp } from '@/components/AppShell';
+import { classList } from '@/lib/people';
 
 export default function Settings() {
   const { status, reloadStatus, user } = useApp();
@@ -74,7 +75,10 @@ export default function Settings() {
 
 function Users({ me }) {
   const { data: users, reload } = useApi('/users');
-  const [form, setForm] = useState({ username: '', name: '', password: '' });
+  const { data: people } = useApi('/employees');
+  const [form, setForm] = useState({ username: '', name: '', password: '', role: 'admin', classes: '' });
+  const [rights, setRights] = useState(null);
+  const classes = classList(people);
   const [error, setError] = useState('');
 
   async function add(e) {
@@ -82,7 +86,7 @@ function Users({ me }) {
     setError('');
     try {
       await api('/users', { method: 'POST', body: form });
-      setForm({ username: '', name: '', password: '' });
+      setForm({ username: '', name: '', password: '', role: 'admin', classes: '' });
       reload();
     } catch (err) {
       setError(err.message);
@@ -116,12 +120,14 @@ function Users({ me }) {
       <h2>Foydalanuvchilar</h2>
       {error && <div className="flash error">{error}</div>}
       <table>
-        <thead><tr><th>Login</th><th>Ism</th><th></th></tr></thead>
+        <thead><tr><th>Login</th><th>Ism</th><th>Huquq</th><th></th></tr></thead>
         <tbody>
           {(users || []).map((u) => (
             <tr key={u.id}>
               <td>{u.username} {u.id === me.id && <span className="pill muted">siz</span>}</td><td>{u.name}</td>
+              <td>{u.role === 'teacher' ? <>Sinf rahbari: <b>{u.classes.join(', ')}</b></> : 'Administrator'}</td>
               <td className="row">
+                {u.id !== me.id && <button className="secondary small" onClick={() => setRights({ ...u, classes: u.classes.join(', ') })}>Huquq</button>}
                 <button className="secondary small" onClick={() => changePassword(u)}>Parolni o&apos;zgartirish</button>
                 {u.id !== me.id && <button className="secondary small" onClick={() => remove(u)}>O&apos;chirish</button>}
               </td>
@@ -133,8 +139,16 @@ function Users({ me }) {
         <label>Login<input value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} required /></label>
         <label>Ism<input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></label>
         <label>Parol<input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} autoComplete="new-password" required /></label>
+        <label>Huquq<select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
+          <option value="admin">Administrator (hamma narsa)</option>
+          <option value="teacher">Sinf rahbari (faqat o&apos;z sinfi)</option>
+        </select></label>
+        {form.role === 'teacher' && <ClassesInput value={form.classes} onChange={(v) => setForm({ ...form, classes: v })} classes={classes} />}
         <button>+ Qo&apos;shish</button>
       </form>
+      <p className="hint">Sinf rahbari faqat o&apos;z sinfi o&apos;quvchilarini ko&apos;radi: yuzini kiritadi, davomatini ko&apos;radi. Xodimlar, terminallar,
+        sozlamalar va davomatni o&apos;zgartirish unga yopiq.</p>
+      {rights && <RightsForm user={rights} classes={classes} onClose={(changed) => { setRights(null); if (changed) reload(); }} />}
     </div>
   );
 }
@@ -189,6 +203,44 @@ function Viewers({ status, reloadStatus }) {
         <label>Telegram ID<input value={form.id} onChange={(e) => setForm({ ...form, id: e.target.value })} inputMode="numeric" placeholder="123456789" required /></label>
         <label>Kim<input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Direktor, HR…" maxLength={60} /></label>
         <button>+ Qo&apos;shish</button>
+      </form>
+    </div>
+  );
+}
+
+/** "9-A, 9-B" with suggestions from the existing classes. */
+function ClassesInput({ value, onChange, classes }) {
+  return (
+    <label>Sinflari (vergul bilan)<input value={value} onChange={(e) => onChange(e.target.value)} list="all-classes" placeholder="9-A, 9-B" required />
+      <datalist id="all-classes">{classes.map((c) => <option key={c} value={c} />)}</datalist></label>
+  );
+}
+
+function RightsForm({ user, classes, onClose }) {
+  const [f, setF] = useState({ name: user.name || '', role: user.role, classes: user.classes });
+  const [error, setError] = useState('');
+  async function save(e) {
+    e.preventDefault();
+    try {
+      await api(`/users/${user.id}`, { method: 'PUT', body: f });
+      onClose(true);
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+  return (
+    <div className="modal-back" onClick={() => onClose(false)}>
+      <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={save} style={{ maxWidth: 420 }}>
+        <h2>{user.username} — huquq</h2>
+        {error && <div className="flash error">{error}</div>}
+        <p><label>Ism<input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></label></p>
+        <p><label>Huquq<select value={f.role} onChange={(e) => setF({ ...f, role: e.target.value })}>
+          <option value="admin">Administrator (hamma narsa)</option>
+          <option value="teacher">Sinf rahbari (faqat o&apos;z sinfi)</option>
+        </select></label></p>
+        {f.role === 'teacher' && <p><ClassesInput value={f.classes} onChange={(v) => setF({ ...f, classes: v })} classes={classes} /></p>}
+        <p className="hint">Saqlangach, bu foydalanuvchi qayta kiradi (yangi huquq darhol ishlaydi).</p>
+        <div className="row"><button>Saqlash</button><button type="button" className="secondary" onClick={() => onClose(false)}>Bekor qilish</button></div>
       </form>
     </div>
   );

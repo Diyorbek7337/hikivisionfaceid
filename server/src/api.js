@@ -164,9 +164,35 @@ function createApi({ store, auth, cfg, sync, backup, clientFor, version }) {
   api.use((req, res, next) => auth.require(req, res, next));
   api.use(bigJson);
 
+  // ---------- class teachers ----------
+  // A teacher sees only the students of their classes: list, faces, attendance. Everything else is admin-only.
+  const isTeacher = (req) => req.user.role === 'teacher';
+  const teaches = (req, emp) => !!emp && !emp.deleted && emp.kind === 'student' && (req.user.classes || []).includes(emp.className);
+  const TEACHER_ROUTES = [
+    ['GET', /^\/status$/], ['GET', /^\/employees$/], ['GET', /^\/today$/], ['GET', /^\/report$/],
+    ['GET', /^\/employees\/\d+\/face\.jpg$/], ['PUT', /^\/employees\/\d+\/face$/],
+    ['PUT', /^\/users\/me\/password$/], ['GET', /^\/parents\/slips$/],
+  ];
+  api.use((req, res, next) => {
+    if (!isTeacher(req)) return next();
+    if (TEACHER_ROUTES.some(([m, re]) => m === req.method && re.test(req.path))) return next();
+    return res.status(403).json({ error: 'Bu bo\'lim faqat administrator uchun' });
+  });
+  const ownStudent = (req) => {
+    const emp = store.getEmployee(Number(req.params.id));
+    if (isTeacher(req) && !teaches(req, emp)) throw new HttpError(403, 'Bu o\'quvchi sizning sinfingizda emas');
+    return emp;
+  };
+
   // ---------- status & settings ----------
   api.get('/status', (req, res) => {
-    res.json({
+    if (isTeacher(req)) {
+      return res.json({
+        version, timezone: tz, today: localDate(new Date(), tz), telegram: !!cfg.botToken,
+        settings: { organizationName: store.settings.organizationName || '' },
+      });
+    }
+    return res.json({
       version, ips: lanAddresses(), port: cfg.port, hostname: os.hostname(), timezone: tz,
       today: localDate(new Date(), tz), settings: store.settings, telegram: !!cfg.botToken,
       publicUrl: cfg.publicUrl || '', adminTelegramIds: cfg.adminTelegramIds || [],
@@ -204,8 +230,9 @@ function createApi({ store, auth, cfg, sync, backup, clientFor, version }) {
   // ---------- dashboard ----------
   api.get('/today', (req, res) => {
     const date = isDate(req.query.date) ? req.query.date : localDate(new Date(), tz);
-    const rows = daySummary(store, date, tz).map((r) => ({ ...r, attendance: publicRecord(r.attendance) }));
-    res.json({ date, rows, devices: [...store.devices.values()].map(publicDevice) });
+    const rows = daySummary(store, date, tz).filter((r) => !isTeacher(req) || teaches(req, r.employee))
+      .map((r) => ({ ...r, attendance: publicRecord(r.attendance) }));
+    res.json({ date, rows, devices: isTeacher(req) ? [] : [...store.devices.values()].map(publicDevice) });
   });
 
   // ---------- schedules ----------
@@ -260,7 +287,7 @@ function createApi({ store, auth, cfg, sync, backup, clientFor, version }) {
 
   // ---------- employees ----------
   api.get('/employees', (req, res) => {
-    res.json([...store.employees.values()].filter((e) => !e.deleted));
+    res.json([...store.employees.values()].filter((e) => !e.deleted && (!isTeacher(req) || teaches(req, e))));
   });
 
   api.post('/employees', (req, res) => {
@@ -316,6 +343,7 @@ function createApi({ store, auth, cfg, sync, backup, clientFor, version }) {
   });
 
   api.get('/employees/:id/face.jpg', wrap(async (req, res) => {
+    ownStudent(req);
     const img = await store.getFace(Number(req.params.id));
     if (!img) throw new HttpError(404, 'Rasm yo\'q');
     res.set('Cache-Control', 'no-cache').type('image/jpeg').send(img);
@@ -323,7 +351,7 @@ function createApi({ store, auth, cfg, sync, backup, clientFor, version }) {
 
   api.put('/employees/:id/face', (req, res) => {
     const id = Number(req.params.id);
-    const e = store.getEmployee(id);
+    const e = ownStudent(req);
     if (!e || e.deleted) throw new HttpError(404, 'Xodim topilmadi');
     store.setFace(id, decodeImage(req.body.image));
     res.json(store.getEmployee(id));
@@ -414,7 +442,8 @@ function createApi({ store, auth, cfg, sync, backup, clientFor, version }) {
     const to = isDate(req.query.to) ? req.query.to : today;
     if (from > to) throw bad('Sana oralig\'i noto\'g\'ri');
     const { records, summary } = periodSummary(store, from, to, tz);
-    res.json({ from, to, records: records.map(publicRecord), summary });
+    const mine = (id) => !isTeacher(req) || teaches(req, store.employees.get(id));
+    res.json({ from, to, records: records.filter((r) => mine(r.employeeId)).map(publicRecord), summary: summary.filter((x) => mine(x.employeeId)) });
   });
 
   /**
@@ -489,6 +518,14 @@ function createApi({ store, auth, cfg, sync, backup, clientFor, version }) {
   api.get('/events', (req, res) => res.json(store.listEvents(Math.min(500, Number(req.query.limit) || 150))));
 
   // ---------- users ----------
+  function cleanRole(b) {
+    const role = b.role === 'teacher' ? 'teacher' : 'admin';
+    const classes = role === 'teacher'
+      ? [...new Set((Array.isArray(b.classes) ? b.classes : String(b.classes || '').split(/[,;]/)).map(normClass).filter(Boolean))]
+      : [];
+    if (role === 'teacher' && !classes.length) throw bad('Sinf rahbariga kamida bitta sinf yozing (masalan 9-A)');
+    return { role, classes };
+  }
   api.get('/users', (req, res) => res.json(store.listUsers()));
   api.post('/users', (req, res) => {
     const username = String(req.body.username || '').trim();
@@ -496,8 +533,25 @@ function createApi({ store, auth, cfg, sync, backup, clientFor, version }) {
     if (!/^[\w.@-]{3,40}$/.test(username)) throw bad('Login 3–40 belgi: harf, raqam, . _ - @');
     if (password.length < 6) throw bad('Parol kamida 6 belgi bo\'lsin');
     if (store.getUserByName(username)) throw bad('Bunday login bor');
-    res.json({ id: store.createUser({ username, name: req.body.name || '', passwordHash: auth.hashPassword(password) }) });
+    const name = String(req.body.name || '').trim().slice(0, 60);
+    res.json({ id: store.createUser({ username, name, passwordHash: auth.hashPassword(password), ...cleanRole(req.body) }) });
   });
+  api.put('/users/:id', (req, res) => {
+    const id = Number(req.params.id);
+    if (id === req.user.id && req.body.role === 'teacher') throw bad('O\'zingizni administratorlikdan chiqara olmaysiz');
+    store.updateUser(id, { name: String(req.body.name || '').trim().slice(0, 60), ...cleanRole(req.body) });
+    res.json({ ok: true });
+  });
+  /** Everybody can change their own password (the old one is required). */
+  api.put('/users/me/password', wrap(async (req, res) => {
+    const password = String(req.body.password || '');
+    if (password.length < 6) throw bad('Yangi parol kamida 6 belgi bo\'lsin');
+    const me = store.getUserByName(req.user.username);
+    if (!me || !(await auth.verifyPassword(String(req.body.oldPassword || ''), me.password_hash))) throw bad('Eski parol noto\'g\'ri');
+    store.setUserPassword(req.user.id, auth.hashPassword(password));
+    auth.startSession(res, { id: req.user.id }); // stay logged in on this device
+    res.json({ ok: true });
+  }));
   api.put('/users/:id/password', (req, res) => {
     const password = String(req.body.password || '');
     if (password.length < 6) throw bad('Parol kamida 6 belgi bo\'lsin');

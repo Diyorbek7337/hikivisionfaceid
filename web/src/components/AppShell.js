@@ -10,6 +10,10 @@ import Setup from './Setup';
 const Ctx = createContext(null);
 export const useApp = () => useContext(Ctx);
 
+/** Class teachers: only the pages about their own students. */
+const TEACHER_LINKS = [['/', 'Bugun'], ['/faces/', 'Yuzlar'], ['/reports/', 'Hisobot']];
+const TEACHER_PATHS = ['/', '/faces/', '/reports/'];
+
 const LINKS = [
   ['/', 'Bugun'],
   ['/employees/', 'Xodimlar'],
@@ -26,6 +30,7 @@ export default function AppShell({ children }) {
   const [status, setStatus] = useState(null);
   const [error, setError] = useState('');
   const [expired, setExpired] = useState(false);
+  const [pwOpen, setPwOpen] = useState(false);
   const pathname = usePathname();
   // The Telegram mini app (/tg) has its own login and layout.
   const miniApp = (pathname || '').startsWith('/tg');
@@ -69,16 +74,23 @@ export default function AppShell({ children }) {
   }
 
   const org = status && status.settings && status.settings.organizationName;
+  const teacher = session.user.role === 'teacher';
+  const links = teacher ? TEACHER_LINKS : LINKS;
+  const allowed = !teacher || TEACHER_PATHS.includes(pathname.endsWith('/') ? pathname : `${pathname}/`);
   return (
     <Ctx.Provider value={{ user: session.user, status, reloadStatus: refresh }}>
       <header className="top"><nav className="nav">
         <span className="brand">📷 {org || 'Davomat'}</span>
-        {LINKS.map(([href, label]) => (
+        {links.map(([href, label]) => (
           <Link key={href} href={href} className={(href === '/' ? pathname === '/' : pathname.startsWith(href)) ? 'active' : ''}>{label}</Link>
         ))}
+        {teacher && <span className="pill muted" title="Sinf rahbari">{(session.user.classes || []).join(', ')}</span>}
+        <button className="secondary small" onClick={() => setPwOpen(true)} title="Parolni o'zgartirish">🔑</button>
         <button className="secondary small" onClick={logout} title={session.user.username}>Chiqish</button>
       </nav></header>
-      <main>{status ? children : <p className="muted">Yuklanmoqda…</p>}</main>
+      <main>{!status ? <p className="muted">Yuklanmoqda…</p>
+        : allowed ? children : <div className="card"><h1>Bu bo&apos;lim faqat administrator uchun</h1><Link href="/">← Bugun</Link></div>}</main>
+      {pwOpen && <PasswordForm onClose={() => setPwOpen(false)} />}
       {expired && (
         <div className="modal-back">
           <div className="modal" style={{ padding: 0 }}>
@@ -88,5 +100,42 @@ export default function AppShell({ children }) {
         </div>
       )}
     </Ctx.Provider>
+  );
+}
+
+/** Change own password (old one required). */
+function PasswordForm({ onClose }) {
+  const [f, setF] = useState({ oldPassword: '', password: '', again: '' });
+  const [error, setError] = useState('');
+  const [done, setDone] = useState(false);
+  async function save(e) {
+    e.preventDefault();
+    if (f.password !== f.again) { setError('Yangi parollar bir xil emas'); return; }
+    try {
+      await api('/users/me/password', { method: 'PUT', body: { oldPassword: f.oldPassword, password: f.password } });
+      setDone(true);
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+  const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
+  return (
+    <div className="modal-back" onClick={onClose}>
+      <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={save} style={{ maxWidth: 380 }}>
+        <h2>Parolni o&apos;zgartirish</h2>
+        {done ? <p className="ok">✅ Parol o&apos;zgartirildi</p> : (
+          <>
+            {error && <div className="flash error">{error}</div>}
+            <p><label>Hozirgi parol<input type="password" value={f.oldPassword} onChange={set('oldPassword')} autoComplete="current-password" required /></label></p>
+            <p><label>Yangi parol (kamida 6 belgi)<input type="password" value={f.password} onChange={set('password')} autoComplete="new-password" required /></label></p>
+            <p><label>Yangi parol yana bir marta<input type="password" value={f.again} onChange={set('again')} autoComplete="new-password" required /></label></p>
+          </>
+        )}
+        <div className="row">
+          {!done && <button>Saqlash</button>}
+          <button type="button" className="secondary" onClick={onClose}>Yopish</button>
+        </div>
+      </form>
+    </div>
   );
 }

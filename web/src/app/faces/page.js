@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import { useApp } from '@/components/AppShell';
 import { api, useApi, faceUrl } from '@/lib/api';
 import { toFaceJpeg } from '@/lib/image';
 import { normText } from '@/lib/time';
@@ -16,7 +17,9 @@ export default function Faces() {
   const { data: employees, error, reload } = useApi('/employees');
   const [showAll, setShowAll] = useState(false);
   const [q, setQ] = useState('');
-  const [kind, setKind] = useState('staff');
+  const app = useApp();
+  const teacher = !!(app && app.user && app.user.role === 'teacher');
+  const [kind, setKind] = useState(teacher ? 'student' : 'staff');
   const [cls, setCls] = useState('');
   const [selected, setSelected] = useState(null);
   const [photo, setPhoto] = useState(null);
@@ -25,6 +28,13 @@ export default function Faces() {
   const [err, setErr] = useState('');
   const [savedIds, setSavedIds] = useState(() => new Set()); // saved here, until the list reloads
   const fileRef = useRef(null);
+  // Phones (and pages opened over plain http on another device) cannot use the in-page camera:
+  // they get one big button that opens the phone's own camera.
+  const [webcam, setWebcam] = useState(false);
+  useEffect(() => {
+    const md = navigator.mediaDevices;
+    setWebcam(!!(md && md.getUserMedia) && !window.matchMedia('(pointer: coarse)').matches);
+  }, []);
 
   const hasStudents = (employees || []).some((e) => e.kind === 'student');
   const classes = classList(employees);
@@ -79,7 +89,7 @@ export default function Faces() {
     <>
       <h1>Yuzlarni kiritish</h1>
       <ErrorBox error={error} />
-      {hasStudents && <KindTabs value={kind} onChange={(k) => { setKind(k); setCls(''); setSelected(null); setPhoto(null); }} />}
+      {hasStudents && !teacher && <KindTabs value={kind} onChange={(k) => { setKind(k); setCls(''); setSelected(null); setPhoto(null); }} />}
       {hasStudents && kind === 'student' && (
         <div className="row" style={{ marginBottom: 8 }}>
           <label>Sinf<select value={cls} onChange={(e) => { setCls(e.target.value); setSelected(null); setPhoto(null); }}>
@@ -88,7 +98,7 @@ export default function Faces() {
           </select></label>
         </div>
       )}
-      <p className="muted">Rasmi yo&apos;q: <b>{missing}</b> / {active.length}. Xodimni tanlang → rasmga oling → Saqlash. Keyingi xodim avtomatik tanlanadi.</p>
+      <p className="muted">Rasmi yo&apos;q: <b>{missing}</b> / {active.length}. {kind === 'student' ? 'O\'quvchini' : 'Xodimni'} tanlang → rasmga oling → Saqlash. Keyingisi avtomatik tanlanadi.</p>
       <div className="facegrid">
         <div className="card facelist">
           <div className="row" style={{ marginBottom: 8 }}>
@@ -124,8 +134,12 @@ export default function Faces() {
                 </>
               ) : (
                 <>
-                  <CameraView key={selected.id} onShot={async (c) => { setErr(''); setPhoto(await toFaceJpeg(c)); }} />
-                  <button type="button" className="secondary" style={{ marginTop: 8, width: '100%' }} onClick={() => fileRef.current.click()}>📁 Rasm yuklash / telefon kamerasi</button>
+                  {webcam && <CameraView key={selected.id} onShot={async (c) => { setErr(''); setPhoto(await toFaceJpeg(c)); }} />}
+                  {webcam ? (
+                    <button type="button" className="secondary" style={{ marginTop: 8, width: '100%' }} onClick={() => fileRef.current.click()}>📁 Rasm yuklash</button>
+                  ) : (
+                    <button type="button" className="big-shot" onClick={() => fileRef.current.click()}>📷 Rasmga olish</button>
+                  )}
                   <input ref={fileRef} type="file" accept="image/*" capture="user" hidden onChange={onFile} />
                 </>
               )}
