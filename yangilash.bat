@@ -6,10 +6,13 @@ cd /d "%~dp0"
 pushd server
 call npm install --omit=dev
 popd
-pushd web
-call npm install
-call npm run build
-popd
+rem Tayyor paketda web sahifalar allaqachon yig'ilgan (web\src yo'q) - qayta yig'ish shart emas.
+if exist "web\src" (
+  pushd web
+  call npm install
+  call npm run build
+  popd
+)
 echo.
 echo Tayyor. Endi start-windows.bat ni ishga tushiring.
 pause

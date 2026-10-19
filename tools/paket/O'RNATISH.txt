@@ -1,0 +1,72 @@
+﻿DAVOMAT TIZIMI - O'RNATISH
+================================
+
+KERAK: doim yoqiq turadigan Windows 10/11 kompyuter, terminallar bilan bitta tarmoqda.
+
+1. PAPKA
+   Shu papkani C:\Davomat ga ko'chiring (ish stoliga emas).
+
+2. NODE.JS
+   node-v...-x64.msi faylini ishga tushirib o'rnating (Next, Next ... Install).
+   (Fayl paketda bo'lmasa: https://nodejs.org -> LTS.)
+
+3. SOZLAMALAR (server\.env)
+   server\.env faylini Bloknot (Notepad) bilan oching va to'ldiring:
+     - PORT=3001 ni o'zgartirmang
+     - Telegram kerak bo'lsa: BOT_TOKEN, ADMIN_TELEGRAM_IDS
+     - Telefondan ko'rish kerak bo'lsa: PUBLIC_URL (10-band)
+   Saqlang. Faylning nomi aynan ".env" bo'lsin (".env.txt" emas).
+
+4. ISHGA TUSHIRISH
+   start-windows.bat ni ikki marta bosing.
+   "Windows protected your PC" chiqsa: "More info" (Подробнее) -> "Run anyway" (Выполнить в любом случае).
+   Brauzer ochiladi -> administrator login va parolini yarating, tashkilot nomini yozing.
+   QORA OYNANI YOPMANG - yopilsa tizim to'xtaydi (pastga kichraytirib qo'ying).
+
+5. FIREWALL
+   firewall-ochish.bat -> sichqonchaning o'ng tugmasi -> "Run as administrator".
+   (Terminallar va boshqa kompyuterlar tizimga ulana olishi uchun.)
+
+6. KOMPYUTER SOZLAMALARI
+   - Elektr ta'minoti: "Uyqu rejimi" -> Hech qachon (Never).
+   - Avtomatik ishga tushish: Win+R -> shell:startup -> ochilgan papkaga
+     start-windows.bat ning yorlig'ini (shortcut) qo'ying.
+   - Routerda kompyuterga doimiy IP bering (DHCP reservation).
+
+7. TERMINALLAR
+   ! DIQQAT: tizim terminalga birinchi ulanganda, terminalda bor, lekin tizimda yo'q
+     odamlarni O'CHIRADI. Terminaldagi eski xodimlar/yuzlar kerak bo'lsa - avval to'xtang.
+   - SADP dasturi bilan terminallar IP manzilini toping, ularga ham doimiy IP bering.
+   - Tizimda: Terminallar -> + Terminal qo'shish (IP, admin paroli, Kirish/Chiqish).
+   - Terminal web sahifasida HTTP Listening ni sozlang (qiymatlar Terminallar sahifasida,
+     "Terminalda sozlash" bo'limida). Terminal boshqa tizimga ulangan bo'lsa (EHome va h.k.)
+     u qatorga tegmang - bo'sh qatorga yozing.
+   - Tekshirish: terminal-tekshirish.bat
+
+8. XODIMLAR
+   - Jadvallar: asosiy jadvalni tashkilot vaqtiga moslang.
+   - Xodimlar -> Excel'dan import.
+   - Faqat ba'zi kunlari keladiganlar: xodim kartasida "Shaxsiy kunlar" yoki "Erkin".
+   - Yuzlar sahifasi: har bir xodimni rasmga oling. Telefondan ham bo'ladi:
+     telefonni shu Wi-Fi ga ulab, http://<kompyuter IP>:3001 ni oching.
+   - Xodimlar ro'yxatida terminal ustunlarida hammada ✓ bo'lsin.
+
+9. SINOV
+   3-4 kishi Kirish va Chiqish terminalida yuz ko'rsatsin -> "Bugun" sahifasida
+   Keldi / Ketdi chiqishini tekshiring.
+
+10. TELEFONDAN KO'RISH (ixtiyoriy)
+   - Tailscale o'rnating (https://tailscale.com/download), akkaunt bilan kiring.
+   - Administrator cmd: tailscale funnel --bg 3001
+   - Chiqqan https://....ts.net manzilni server\.env dagi PUBLIC_URL ga yozing,
+     tizimni qayta ishga tushiring.
+   - Rahbar botga /start yozadi -> ID sini Sozlamalar -> "Telefondan ko'ruvchilar" ga qo'shing.
+   - U yana /start yozadi -> "Davomatni ochish" tugmasi chiqadi.
+
+ZAXIRA: baza har kuni avtomatik nusxalanadi (zaxira-nusxa.bat papkani ochadi).
+        Oyda bir marta fleshkaga ko'chirib qo'ying.
+
+YANGILASH: yangi paketdagi fayllarni ustidan ko'chiring, lekin server\data papkasi
+           va server\.env faylini ALMASHTIRMANG. Keyin start-windows.bat.
+
+Batafsil: README.md

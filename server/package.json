@@ -1,6 +1,6 @@
 {
   "name": "davomat-server",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "description": "Face ID davomat tizimi: Hikvision terminallari, mahalliy baza, web app API",
   "main": "src/index.js",
   "private": true,

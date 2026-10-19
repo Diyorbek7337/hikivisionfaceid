@@ -3,3 +3,5 @@ node_modules/
 server/data/
 web/.next/
 web/out/
+tools/.cache/
+dist/
