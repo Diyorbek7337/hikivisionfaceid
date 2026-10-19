@@ -121,7 +121,7 @@ test('bot: viewers get the mini app button and quick summaries, others are ignor
   assert.equal(calls[0][0], 'setChatMenuButton');
   assert.equal(await handle(msg(999, '/start')), null, 'stranger: default chat-ID reply');
   store.createEmployee({ name: 'Aziz' });
-  assert.match((await handle(msg(111, '/kelmaganlar'))).text, /Kelmaganlar/);
+  assert.match((await handle(msg(111, '/kelmaganlar'))).text, /Kelmagan xodimlar/);
   assert.match((await handle(msg(111, '/kechikkanlar'))).text, /Kechikkan yo'q/);
   assert.ok((await handle(msg(111, '/bugun'))).text);
 });

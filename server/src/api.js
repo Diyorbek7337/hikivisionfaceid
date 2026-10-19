@@ -35,14 +35,31 @@ function nameKey(name) {
   return String(name || '').toLowerCase().replace(/[‘’ʻʼ`´'‛ʹ′]/g, "'").replace(/\s+/g, ' ').trim();
 }
 
+/** Duplicate check key: same name is fine for two students of different classes. */
+const personKey = (e) => `${nameKey(e.name)}|${e.kind === 'student' ? e.className : ''}`;
+
 /** Whole number within [min, max]; anything else (NaN, Infinity, '1e400') becomes min. */
 function clampInt(v, min, max) {
   const n = Math.round(Number(v));
   return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : min;
 }
 
+/**
+ * Class name in one form: "9 a", "9a", "9-а" (Cyrillic) -> "9-A"; anything else is kept, trimmed and upper-cased.
+ */
+function normClass(v) {
+  let t = String(v || '').trim().replace(/\s+/g, ' ').toUpperCase().slice(0, 20);
+  const CYR = { А: 'A', Б: 'B', В: 'V', Г: 'G', Д: 'D', Е: 'E', Ж: 'J', З: 'Z', С: 'S' };
+  const m = /^(\d{1,2})\s*[-–—]?\s*["'«]?([A-ZА-ЯЁЎҚҒҲ]{1,2})["'»]?\s*(SINF|КЛАСС|КЛ\.?)?$/u.exec(t);
+  if (m) t = `${m[1]}-${[...m[2]].map((c) => CYR[c] || c).join('')}`;
+  return t;
+}
+
 function cleanEmployee(b) {
+  const student = b.kind === 'student';
   const e = {
+    kind: student ? 'student' : 'staff',
+    className: student ? normClass(b.className) : '',
     name: String(b.name || '').trim().replace(/\s+/g, ' '),
     position: String(b.position || '').trim().slice(0, 100),
     phone: String(b.phone || '').trim().slice(0, 30),
@@ -55,6 +72,11 @@ function cleanEmployee(b) {
     active: b.active !== false,
   };
   if (!e.name) throw bad('Ismni kiriting');
+  if (student) {
+    if (!e.className) throw bad('Sinfni kiriting (masalan 9-A)');
+    // pay and personal Telegram are for staff; parents are connected through their child's code
+    Object.assign(e, { payType: 'hourly', payRate: 0, telegramChatId: '', position: '' });
+  }
   if (e.name.length > 100) throw bad('Ism juda uzun');
   if (e.telegramChatId && !/^-?\d+$/.test(e.telegramChatId)) throw bad('Telegram chat ID faqat raqam bo\'ladi');
   return e;
@@ -243,8 +265,8 @@ function createApi({ store, auth, cfg, sync, backup, clientFor, version }) {
 
   api.post('/employees', (req, res) => {
     const e = checkAccessProfile(cleanEmployee(req.body));
-    if (!req.body.allowDuplicate && [...store.employees.values()].some((x) => !x.deleted && nameKey(x.name) === nameKey(e.name))) {
-      return res.status(409).json({ error: `"${e.name}" ismli xodim allaqachon bor`, duplicate: true });
+    if (!req.body.allowDuplicate && [...store.employees.values()].some((x) => !x.deleted && personKey(x) === personKey(e))) {
+      return res.status(409).json({ error: `"${e.name}"${e.kind === 'student' ? ` (${e.className})` : ''} allaqachon bor`, duplicate: true });
     }
     const id = store.createEmployee(e);
     if (req.body.image) store.setFace(id, decodeImage(req.body.image));
@@ -255,13 +277,17 @@ function createApi({ store, auth, cfg, sync, backup, clientFor, version }) {
     const rows = Array.isArray(req.body.rows) ? req.body.rows : [];
     if (!rows.length) throw bad('Ro\'yxat bo\'sh');
     if (rows.length > 2000) throw bad('Bir martada 2000 tadan ko\'p emas');
-    const existing = new Set([...store.employees.values()].filter((e) => !e.deleted).map((e) => nameKey(e.name)));
+    const existing = new Set([...store.employees.values()].filter((e) => !e.deleted).map(personKey));
     const toAdd = [];
     let skipped = 0;
     for (const r of rows) {
       let e;
-      try { e = cleanEmployee({ ...r, scheduleId: r.scheduleId || req.body.scheduleId }); } catch { skipped += 1; continue; }
-      const key = nameKey(e.name);
+      try {
+        e = cleanEmployee({
+          ...r, kind: req.body.kind, className: r.className || req.body.className, scheduleId: r.scheduleId || req.body.scheduleId,
+        });
+      } catch { skipped += 1; continue; }
+      const key = personKey(e);
       if (existing.has(key)) { skipped += 1; continue; }
       existing.add(key);
       toAdd.push(e);
@@ -520,4 +546,4 @@ function publicDevice(d) {
   return { ...rest, hasPassword: !!password };
 }
 
-module.exports = { createApi, dateFromLocal, nameKey };
+module.exports = { createApi, dateFromLocal, nameKey, normClass };

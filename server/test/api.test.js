@@ -271,3 +271,40 @@ test('manual editing of a day with several sessions', async (t) => {
   assert.equal((await call('PUT', `/api/employees/${emp.id}`, { ...emp, payType: 'weird', payRate: 5 })).body.payType, 'hourly');
   assert.equal(rep.body.records[0].sessions.length, 3);
 });
+
+test('students: classes, import per class, same name in two classes, separate daily report line', async (t) => {
+  const { store, server, call } = await setup();
+  t.after(() => server.close());
+  await call('POST', '/api/setup', { username: 'admin', password: 'parol123' });
+  const imp = await call('POST', '/api/employees/import', {
+    kind: 'student',
+    rows: [
+      { name: 'Aliyev Jasur', className: '9 a' }, { name: 'Karimova Laylo', className: '9-А' },
+      { name: 'Aliyev Jasur', className: '10b' }, { name: 'Aliyev  Jasur', className: '9A' }, { name: 'Sinfsiz bola' },
+    ],
+  });
+  assert.deepEqual(imp.body, { added: 3, skipped: 2 }, 'duplicate in 9-A and the one without a class are skipped');
+  const all = (await call('GET', '/api/employees')).body;
+  assert.deepEqual(all.map((e) => `${e.name}|${e.className}|${e.kind}`).sort(),
+    ['Aliyev Jasur|10-B|student', 'Aliyev Jasur|9-A|student', 'Karimova Laylo|9-A|student']);
+  // whole file into one class
+  const one = await call('POST', '/api/employees/import', { kind: 'student', className: '11 v', rows: [{ name: 'Toshev Ali' }] });
+  assert.equal(one.body.added, 1);
+  assert.equal((await call('GET', '/api/employees')).body.find((e) => e.name === 'Toshev Ali').className, '11-V');
+  // a student has no pay and no personal Telegram
+  const s = await call('POST', '/api/employees', { name: 'Yangi', kind: 'student', className: '5-a', payRate: 50000, telegramChatId: '123' });
+  assert.equal(s.body.payRate, 0);
+  assert.equal(s.body.telegramChatId, '');
+  assert.equal((await call('POST', '/api/employees', { name: 'X', kind: 'student' })).status, 400, 'class required');
+  // staff import still works and is separate
+  await call('POST', '/api/employees/import', { rows: [{ name: 'Aliyev Jasur' }] });
+  assert.equal((await call('GET', '/api/employees')).body.filter((e) => e.name === 'Aliyev Jasur').length, 3);
+
+  const { buildDailyReport } = require('../src/report');
+  store.db.prepare("UPDATE employees SET created_at = '2026-01-01T00:00:00Z'").run();
+  store.reloadEmployees(false);
+  const text = buildDailyReport(store, '2026-01-12', 'Asia/Tashkent');
+  assert.match(text, /O'quvchilar:<\/b> keldi 0 \/ 5, kechikdi 0, kelmadi 5/);
+  assert.match(text, /Xodimlar/);
+  assert.doesNotMatch(text, /Karimova Laylo/, 'students are not listed by name');
+});

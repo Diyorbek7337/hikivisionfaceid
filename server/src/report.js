@@ -7,17 +7,29 @@ function esc(s) {
   return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+/** "O'quvchilar: 760 / 800 keldi …" — counts only; lists of hundreds of children do not fit a message. */
+function studentsLine(rows) {
+  const working = rows.filter((r) => r.status !== 'off' && r.status !== 'free');
+  if (!working.length) return '';
+  const came = rows.filter((r) => r.status === 'present' || r.status === 'late').length;
+  const late = rows.filter((r) => r.status === 'late').length;
+  const absent = rows.filter((r) => r.status === 'absent').length;
+  return `\n👦 <b>O'quvchilar:</b> keldi ${came} / ${working.length}, kechikdi ${late}, kelmadi ${absent}\n`;
+}
+
 function buildDailyReport(store, date, tz) {
-  const rows = daySummary(store, date, tz);
+  const all = daySummary(store, date, tz);
+  const rows = all.filter((r) => r.employee.kind !== 'student');
+  const students = studentsLine(all.filter((r) => r.employee.kind === 'student'));
   // flexible-schedule people count only when they came
   const working = rows.filter((r) => r.status !== 'off' && r.status !== 'free');
   const pending = rows.filter((r) => r.status === 'pending');
-  if (!working.length) return null; // day off for everybody
+  if (!working.length && !students) return null; // day off for everybody
   const late = rows.filter((r) => r.status === 'late');
   const absent = rows.filter((r) => r.status === 'absent');
   const came = rows.filter((r) => r.status === 'present' || r.status === 'late');
   const org = store.settings.organizationName ? `${esc(store.settings.organizationName)}\n` : '';
-  let text = `📊 <b>${org}Davomat — ${date}</b>\n\n✅ Kelgan: ${came.length} / ${working.length}\n⏰ Kechikkan: ${late.length}\n❌ Kelmagan: ${absent.length}\n`;
+  let text = `📊 <b>${org}Davomat — ${date}</b>\n\n${students ? '👔 <b>Xodimlar:</b>\n' : ''}✅ Kelgan: ${came.length} / ${working.length}\n⏰ Kechikkan: ${late.length}\n❌ Kelmagan: ${absent.length}\n`;
   if (pending.length) text += `🕐 Ish vaqti hali boshlanmagan: ${pending.length}\n`;
   const list = (title, items, fmt) => {
     if (!items.length) return '';
@@ -26,7 +38,7 @@ function buildDailyReport(store, date, tz) {
   };
   text += list('Kechikkanlar', late, (r) => `• ${esc(r.employee.name)} — ${localTime(r.attendance.checkIn, tz)} (${formatDuration(r.attendance.lateMinutes)})`);
   text += list('Kelmaganlar', absent, (r) => `• ${esc(r.employee.name)}`);
-  return text;
+  return text + students;
 }
 
 /** Checks every minute whether it is time to send today's report. */
@@ -49,4 +61,4 @@ function startDailyReport({ store, telegram, tz, log = console }) {
   return { tick, stop: () => clearInterval(timer) };
 }
 
-module.exports = { buildDailyReport, startDailyReport };
+module.exports = { buildDailyReport, startDailyReport, studentsLine };

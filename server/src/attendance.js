@@ -142,7 +142,10 @@ async function notifyScan(telegram, tz, result) {
   try {
     if (action === 'checkin') {
       if (employee.telegramChatId) await telegram.send(employee.telegramChatId, checkinMessage(employee, record, tz, result));
-      if (result.firstOfDay && record.lateMinutes > 0) await telegram.notifyAdmins(lateAdminMessage(employee, record, tz));
+      // late students are seen in the class reports; a message for each would flood the director
+      if (result.firstOfDay && record.lateMinutes > 0 && employee.kind !== 'student') {
+        await telegram.notifyAdmins(lateAdminMessage(employee, record, tz));
+      }
     } else if (employee.telegramChatId) {
       await telegram.send(employee.telegramChatId, checkoutMessage(employee, record, tz, result));
     }

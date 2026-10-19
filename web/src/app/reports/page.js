@@ -1,10 +1,11 @@
 'use client';
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { api, useApi } from '@/lib/api';
 import { useApp } from '@/components/AppShell';
 import { formatDuration, localTime, money } from '@/lib/time';
 import { ErrorBox, rateText } from '@/components/ui';
 import { SessionList, openCount, sessionsText } from '@/components/Sessions';
+import { KindTabs, classList } from '@/lib/people';
 
 
 export default function Reports() {
@@ -19,10 +20,24 @@ export default function Reports() {
   const [only, setOnly] = useState('');
   const { data, error, loading, reload } = useApi(`/report?${query}`);
   const { data: employees } = useApi('/employees');
+  const [kind, setKind] = useState('staff');
+  const [cls, setCls] = useState('');
+  const hasStudents = (employees || []).some((e) => e.kind === 'student');
+  const students = hasStudents && kind === 'student';
+  const byId = useMemo(() => new Map((employees || []).map((e) => [e.id, e])), [employees]);
+  // a person belongs to the chosen tab (and class); people not in the list (deleted) count as staff
+  const inScope = useCallback((id) => {
+    if (!hasStudents) return true;
+    const e = byId.get(id);
+    const isStud = !!e && e.kind === 'student';
+    if (students !== isStud) return false;
+    return !students || !cls || e.className === cls;
+  }, [hasStudents, students, cls, byId]);
 
   const records = useMemo(() => (data ? data.records : [])
-    .filter((r) => !employeeId || String(r.employeeId) === employeeId), [data, employeeId]);
-  const summary = (data ? data.summary : []).filter((s) => !employeeId || String(s.employeeId) === employeeId)
+    .filter((r) => inScope(r.employeeId))
+    .filter((r) => !employeeId || String(r.employeeId) === employeeId), [data, employeeId, inScope]);
+  const summary = (data ? data.summary : []).filter((s) => inScope(s.employeeId)).filter((s) => !employeeId || String(s.employeeId) === employeeId)
     .filter((s) => !only || (only === 'absent' ? s.absentDays > 0 : s.lateCount > 0))
     .sort((a, b) => (only === 'absent' ? b.absentDays - a.absentDays : only === 'late' ? b.lateCount - a.lateCount : 0));
   const showPay = summary.some((s) => s.pay > 0);
@@ -38,9 +53,9 @@ export default function Reports() {
     const out = [];
     out.push([`Davomat hisoboti ${data.from} — ${data.to}`]);
     out.push([]);
-    out.push(['Xodim', 'ID', 'Lavozim', 'Ish kunlari', 'Kelgan', 'Kelmagan', 'Kechikishlar', 'Jami kechikish (daq)', 'Erta ketishlar', 'Ishlagan (soat)', "Summa (so'm)"]);
+    out.push([students ? "O'quvchi" : 'Xodim', 'ID', students ? 'Sinf' : 'Lavozim', 'Ish kunlari', 'Kelgan', 'Kelmagan', 'Kechikishlar', 'Jami kechikish (daq)', 'Erta ketishlar', 'Ishlagan (soat)', "Summa (so'm)"]);
     for (const s of summary) {
-      out.push([s.name, s.employeeNo, s.position, s.flexible ? 'erkin' : s.workDays, s.presentDays, s.flexible ? '' : s.absentDays, s.lateCount, s.lateMinutes, s.earlyCount,
+      out.push([s.name, s.employeeNo, students ? s.className : s.position, s.flexible ? 'erkin' : s.workDays, s.presentDays, s.flexible ? '' : s.absentDays, s.lateCount, s.lateMinutes, s.earlyCount,
         (s.workedMinutes / 60).toFixed(2).replace('.', ','), Math.round(s.pay)]);
     }
     out.push([]);
@@ -52,7 +67,7 @@ export default function Reports() {
     const blob = new Blob([`﻿${out.map((l) => l.map(cell).join(';')).join('\r\n')}\r\n`], { type: 'text/csv;charset=utf-8' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = `davomat_${data.from}_${data.to}.csv`;
+    a.download = `davomat_${students ? `oquvchilar${cls ? `_${cls}` : ''}_` : ''}${data.from}_${data.to}.csv`;
     a.click();
     URL.revokeObjectURL(a.href);
   }
@@ -64,12 +79,19 @@ export default function Reports() {
     <>
       <h1>Davomat hisoboti</h1>
       <ErrorBox error={error} />
+      {hasStudents && <KindTabs value={kind} onChange={(k) => { setKind(k); setCls(''); setEmployeeId(''); }} />}
       <div className="card row">
         <label>Dan<input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></label>
         <label>Gacha<input type="date" value={to} onChange={(e) => setTo(e.target.value)} /></label>
-        <label>Xodim<select value={employeeId} onChange={(e) => setEmployeeId(e.target.value)}>
+        {students && (
+          <label>Sinf<select value={cls} onChange={(e) => { setCls(e.target.value); setEmployeeId(''); }}>
+            <option value="">Hammasi</option>
+            {classList(employees).map((c) => <option key={c} value={c}>{c}</option>)}
+          </select></label>
+        )}
+        <label>{students ? 'O\'quvchi' : 'Xodim'}<select value={employeeId} onChange={(e) => setEmployeeId(e.target.value)}>
           <option value="">Hammasi</option>
-          {allEmployees.map((e) => <option key={e.id} value={String(e.id)}>{e.name}{e.active ? '' : ' (nofaol)'}</option>)}
+          {allEmployees.filter((e) => inScope(e.id)).map((e) => <option key={e.id} value={String(e.id)}>{e.name}{e.active ? '' : ' (nofaol)'}</option>)}
         </select></label>
         <button onClick={() => (query === `from=${from}&to=${to}` ? reload() : setQuery(`from=${from}&to=${to}`))} disabled={loading}>
           {loading ? 'Yuklanmoqda…' : 'Ko\'rsatish'}

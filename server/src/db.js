@@ -163,6 +163,9 @@ function migrate(db) {
   if (!attCols.includes('pay_type')) db.exec("ALTER TABLE attendance ADD COLUMN pay_type TEXT NOT NULL DEFAULT 'hourly'");
   // door entry schedule (access_profiles.id); NULL = any time
   if (!empCols.includes('access_profile_id')) db.exec('ALTER TABLE employees ADD COLUMN access_profile_id INTEGER');
+  // 'staff' or 'student'; students belong to a class ("9-A")
+  if (!empCols.includes('kind')) db.exec("ALTER TABLE employees ADD COLUMN kind TEXT NOT NULL DEFAULT 'staff'");
+  if (!empCols.includes('class_name')) db.exec('ALTER TABLE employees ADD COLUMN class_name TEXT');
   if (!empCols.includes('personal_schedule')) db.exec('ALTER TABLE employees ADD COLUMN personal_schedule TEXT');
 }
 

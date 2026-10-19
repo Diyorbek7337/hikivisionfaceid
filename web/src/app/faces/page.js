@@ -6,6 +6,7 @@ import { toFaceJpeg } from '@/lib/image';
 import { normText } from '@/lib/time';
 import { CameraView } from '@/components/FacePicker';
 import { ErrorBox } from '@/components/ui';
+import { KindTabs, classList } from '@/lib/people';
 
 /**
  * Fast face enrolment: pick a person, take a photo, save, the next person is selected automatically.
@@ -15,6 +16,8 @@ export default function Faces() {
   const { data: employees, error, reload } = useApi('/employees');
   const [showAll, setShowAll] = useState(false);
   const [q, setQ] = useState('');
+  const [kind, setKind] = useState('staff');
+  const [cls, setCls] = useState('');
   const [selected, setSelected] = useState(null);
   const [photo, setPhoto] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -23,7 +26,11 @@ export default function Faces() {
   const [savedIds, setSavedIds] = useState(() => new Set()); // saved here, until the list reloads
   const fileRef = useRef(null);
 
+  const hasStudents = (employees || []).some((e) => e.kind === 'student');
+  const classes = classList(employees);
   const active = (employees || []).filter((e) => e.active)
+    .filter((e) => !hasStudents || (kind === 'student' ? e.kind === 'student' : e.kind !== 'student'))
+    .filter((e) => kind !== 'student' || !cls || e.className === cls)
     .map((e) => (savedIds.has(e.id) ? { ...e, hasFace: true } : e))
     .sort((a, b) => a.name.localeCompare(b.name));
   const list = active
@@ -72,6 +79,15 @@ export default function Faces() {
     <>
       <h1>Yuzlarni kiritish</h1>
       <ErrorBox error={error} />
+      {hasStudents && <KindTabs value={kind} onChange={(k) => { setKind(k); setCls(''); setSelected(null); setPhoto(null); }} />}
+      {hasStudents && kind === 'student' && (
+        <div className="row" style={{ marginBottom: 8 }}>
+          <label>Sinf<select value={cls} onChange={(e) => { setCls(e.target.value); setSelected(null); setPhoto(null); }}>
+            <option value="">Hammasi</option>
+            {classes.map((c) => <option key={c} value={c}>{c}</option>)}
+          </select></label>
+        </div>
+      )}
       <p className="muted">Rasmi yo&apos;q: <b>{missing}</b> / {active.length}. Xodimni tanlang → rasmga oling → Saqlash. Keyingi xodim avtomatik tanlanadi.</p>
       <div className="facegrid">
         <div className="card facelist">
@@ -86,7 +102,7 @@ export default function Faces() {
               <button key={e.id} type="button" className={`item ${selected && selected.id === e.id ? 'active' : ''}`}
                 onClick={() => { setSelected(e); setPhoto(null); setMsg(''); setErr(''); }}>
                 {e.hasFace ? <img className="face" src={faceUrl(e)} alt="" loading="lazy" /> : <span className="face" style={{ display: 'inline-grid', placeItems: 'center' }}>?</span>}
-                <span>{e.name}<br /><span className="hint">{e.position}</span></span>
+                <span>{e.name}<br /><span className="hint">{e.kind === 'student' ? e.className : e.position}</span></span>
               </button>
             ))}
             {employees && !list.some((e) => showAll || !e.hasFace) && <p className="ok">🎉 Hammaning rasmi bor.</p>}

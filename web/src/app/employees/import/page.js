@@ -1,5 +1,5 @@
 'use client';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { readSheet } from 'read-excel-file/browser';
@@ -13,10 +13,11 @@ const GUESS = {
   middle: /otasining|sharif|отчеств|шариф|middle/i,
   position: /lavozim|должност|лавозим|position/i,
   phone: /telefon|тел|phone/i,
+  className: /^(sinf|sinfi|синф|синфи|класс|class)$/i,
 };
 
 function guessColumns(headers) {
-  const m = { last: '', first: '', middle: '', position: '', phone: '' };
+  const m = { last: '', first: '', middle: '', position: '', phone: '', className: '' };
   headers.forEach((t, i) => {
     for (const [k, re] of Object.entries(GUESS)) if (m[k] === '' && re.test(t)) { m[k] = String(i); break; }
   });
@@ -43,7 +44,11 @@ export default function ImportPage() {
   const [rows, setRows] = useState(null);
   const [fileName, setFileName] = useState('');
   const [headerRow, setHeaderRow] = useState(0);
-  const [map, setMap] = useState({ last: '', first: '', middle: '', position: '', phone: '' });
+  const [map, setMap] = useState({ last: '', first: '', middle: '', position: '', phone: '', className: '' });
+  const [kind, setKind] = useState('staff');
+  const [oneClass, setOneClass] = useState('');
+  const students = kind === 'student';
+  useEffect(() => { if (new URLSearchParams(window.location.search).get('kind') === 'student') setKind('student'); }, []);
   const [scheduleId, setScheduleId] = useState('');
   const [error, setError] = useState('');
   const [result, setResult] = useState(null);
@@ -73,6 +78,7 @@ export default function ImportPage() {
         name,
         position: map.position === '' ? '' : r[Number(map.position)],
         phone: map.phone === '' ? '' : r[Number(map.phone)],
+        className: map.className === '' ? '' : r[Number(map.className)],
       };
     }).filter((p) => p.name && !/^[\d\s.,-]+$/.test(p.name) && !FOOTER.test(p.name));
   }, [rows, headerRow, map]);
@@ -80,7 +86,9 @@ export default function ImportPage() {
   async function doImport() {
     setBusy(true); setError('');
     try {
-      const r = await api('/employees/import', { method: 'POST', body: { rows: people, scheduleId: scheduleId ? Number(scheduleId) : null } });
+      const body = { rows: people, scheduleId: scheduleId ? Number(scheduleId) : null };
+      if (students) Object.assign(body, { kind: 'student', className: oneClass.trim() });
+      const r = await api('/employees/import', { method: 'POST', body });
       setResult(r);
     } catch (err) {
       setError(err.message);
@@ -98,21 +106,30 @@ export default function ImportPage() {
 
   return (
     <>
-      <h1>Excel&apos;dan xodimlarni import qilish</h1>
+      <h1>Excel&apos;dan {students ? 'o\'quvchilarni' : 'xodimlarni'} import qilish</h1>
+      <div className="tabs">
+        <button type="button" className={!students ? 'on' : ''} onClick={() => setKind('staff')}>👔 Xodimlar</button>
+        <button type="button" className={students ? 'on' : ''} onClick={() => setKind('student')}>👦 O&apos;quvchilar</button>
+      </div>
       {error && <div className="flash error">{error}</div>}
       {result ? (
         <div className="card">
           <h2>✅ Tayyor</h2>
-          <p>Qo&apos;shildi: <b>{result.added}</b> ta xodim. {result.skipped > 0 && <>O&apos;tkazib yuborildi: {result.skipped} ta (bo&apos;sh yoki allaqachon bor).</>}</p>
+          <p>Qo&apos;shildi: <b>{result.added}</b> ta {students ? 'o\'quvchi' : 'xodim'}. {result.skipped > 0 && <>O&apos;tkazib yuborildi: {result.skipped} ta (bo&apos;sh{students ? ', sinfi yo\'q' : ''} yoki allaqachon bor).</>}</p>
           <p>Endi ularning yuzlarini kiriting — busiz terminal ularni taniy olmaydi.</p>
-          <div className="row"><Link className="btn" href="/faces/">Yuzlarni kiritish →</Link><Link className="btn secondary" href="/employees/">Xodimlar ro&apos;yxati</Link></div>
+          <div className="row"><Link className="btn" href="/faces/">Yuzlarni kiritish →</Link><Link className="btn secondary" href={students ? '/employees/?kind=student' : '/employees/'}>Ro&apos;yxat</Link></div>
         </div>
       ) : (
         <>
           <div className="card">
             <ol className="steps">
-              <li>Excel faylda har bir qatorda bitta xodim bo&apos;lsin. Birinchi qatorda sarlavhalar: masalan <b>F.I.Sh.</b>, <b>Lavozim</b>, <b>Telefon</b>
-                (yoki alohida <b>Familiya</b>, <b>Ism</b>, <b>Otasining ismi</b>).</li>
+              {students ? (
+                <li>Har bir qatorda bitta o&apos;quvchi. Sarlavhalar: <b>F.I.Sh.</b> (yoki <b>Familiya</b>, <b>Ism</b>) va <b>Sinf</b> (masalan 9-A).
+                  Har bir sinf alohida faylda bo&apos;lsa — sinf ustuni shart emas, sinfni pastda yozasiz.</li>
+              ) : (
+                <li>Excel faylda har bir qatorda bitta xodim bo&apos;lsin. Birinchi qatorda sarlavhalar: masalan <b>F.I.Sh.</b>, <b>Lavozim</b>, <b>Telefon</b>
+                  (yoki alohida <b>Familiya</b>, <b>Ism</b>, <b>Otasining ismi</b>).</li>
+              )}
               <li>Faylni tanlang (.xlsx).</li>
               <li>Ustunlarni tekshiring va &quot;Import qilish&quot; ni bosing. Bir xil ismli xodim ikki marta qo&apos;shilmaydi.</li>
             </ol>
@@ -130,8 +147,11 @@ export default function ImportPage() {
                   {col('last', "Familiya yoki F.I.Sh. *")}
                   {col('first', "Ism (alohida ustun bo'lsa)")}
                   {col('middle', "Otasining ismi (alohida bo'lsa)")}
-                  {col('position', "Lavozim")}
-                  {col('phone', "Telefon")}
+                  {students ? col('className', 'Sinf ustuni') : col('position', 'Lavozim')}
+                  {students && map.className === '' && (
+                    <label>Hammasi shu sinfga *<input value={oneClass} onChange={(e) => setOneClass(e.target.value)} placeholder="Masalan: 9-A" /></label>
+                  )}
+                  {col('phone', students ? 'Telefon (ota-ona)' : 'Telefon')}
                   <label>Hammasiga ish jadvali<select value={scheduleId} onChange={(e) => setScheduleId(e.target.value)}>
                     {(schedules || []).map((s) => <option key={s.id} value={s.id}>{s.name} — {scheduleSummary(s)}</option>)}
                   </select></label>
@@ -139,16 +159,18 @@ export default function ImportPage() {
               </div>
               <div className="card">
                 <div className="row between">
-                  <h2 style={{ margin: 0 }}>Ko&apos;rib chiqish: {people.length} ta xodim</h2>
-                  <button onClick={doImport} disabled={!people.length || busy}>{busy ? 'Import qilinmoqda…' : `${people.length} ta xodimni import qilish`}</button>
+                  <h2 style={{ margin: 0 }}>Ko&apos;rib chiqish: {people.length} ta {students ? 'o\'quvchi' : 'xodim'}</h2>
+                  <button onClick={doImport} disabled={!people.length || busy || (students && map.className === '' && !oneClass.trim())}
+                    title={students && map.className === '' && !oneClass.trim() ? 'Sinf ustunini tanlang yoki sinfni yozing' : ''}>
+                    {busy ? 'Import qilinmoqda…' : `${people.length} ta ${students ? 'o\'quvchini' : 'xodimni'} import qilish`}</button>
                 </div>
                 <table style={{ marginTop: 12 }}>
-                  <thead><tr><th>#</th><th>F.I.Sh.</th><th>Lavozim</th><th>Telefon</th></tr></thead>
+                  <thead><tr><th>#</th><th>F.I.Sh.</th><th>{students ? 'Sinf' : 'Lavozim'}</th><th>Telefon</th></tr></thead>
                   <tbody>
                     {people.slice(0, 20).map((p, i) => (
                       <tr key={i}><td>{i + 1}</td>
                         <td>{p.name} {p.name.split(' ').length < 2 && <span className="pill warn" title="Ism yoki familiya ustuni tanlanmagan bo'lishi mumkin">faqat 1 so&apos;z</span>}</td>
-                        <td>{p.position}</td><td>{p.phone}</td></tr>
+                        <td>{students ? p.className || oneClass : p.position}</td><td>{p.phone}</td></tr>
                     ))}
                     {people.length > 20 && <tr><td colSpan={4} className="muted">… va yana {people.length - 20} ta</td></tr>}
                     {!people.length && <tr><td colSpan={4} className="muted">F.I.Sh. ustunini tanlang</td></tr>}
@@ -159,7 +181,7 @@ export default function ImportPage() {
           )}
         </>
       )}
-      <button className="secondary" onClick={() => router.push('/employees/')}>← Orqaga</button>
+      <button className="secondary" onClick={() => router.push(students ? '/employees/?kind=student' : '/employees/')}>← Orqaga</button>
     </>
   );
 }

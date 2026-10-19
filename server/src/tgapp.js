@@ -78,6 +78,7 @@ function createTgApi({ store, cfg, secret }) {
     const date = isDate(req.query.date) && req.query.date <= today ? req.query.date : today;
     const rows = daySummary(store, date, tz).map((x) => ({
       id: x.employee.id, name: x.employee.name, position: x.employee.position || '',
+      kind: x.employee.kind || 'staff', className: x.employee.className || '',
       status: x.status, inside: x.inside, flexible: x.flexible, hours: x.hours,
       checkIn: x.attendance ? x.attendance.checkIn : null,
       checkOut: x.attendance ? x.attendance.checkOut : null,
@@ -100,6 +101,7 @@ function createTgApi({ store, cfg, secret }) {
       from, to,
       summary: summary.map((s) => ({
         id: s.employeeId, name: s.name, position: s.position || '', flexible: s.flexible,
+        kind: s.kind, className: s.className,
         workDays: s.workDays, presentDays: s.presentDays, absentDays: s.absentDays, absentDates: s.absentDates,
         lateCount: s.lateCount, lateMinutes: s.lateMinutes, lateDates: s.lateDates,
         earlyCount: s.earlyCount, workedMinutes: s.workedMinutes,

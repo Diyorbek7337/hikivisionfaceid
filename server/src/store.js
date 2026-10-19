@@ -42,6 +42,8 @@ function mapEmployee(r) {
     employeeNo: r.employee_no,
     name: r.name,
     position: r.position || '',
+    kind: r.kind === 'student' ? 'student' : 'staff',
+    className: r.class_name || '',
     phone: r.phone || '',
     telegramChatId: r.telegram_chat_id || '',
     scheduleId: r.schedule_id,
@@ -264,11 +266,12 @@ class LocalStore extends EventEmitter {
 
   createEmployee(e, { emit = true } = {}) {
     const r = this.q(`INSERT INTO employees (employee_no, name, position, phone, telegram_chat_id, schedule_id, personal_schedule, access_profile_id,
-      pay_type, hourly_rate, active)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      pay_type, hourly_rate, active, kind, class_name)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
       this.nextEmployeeNo(), e.name, e.position || null, e.phone || null, e.telegramChatId || null,
       e.scheduleId || null, e.personalSchedule ? JSON.stringify(e.personalSchedule) : null, e.accessProfileId || null,
       payTypeOf(e.payType), Number(e.payRate) || 0, e.active === false ? 0 : 1,
+      e.kind === 'student' ? 'student' : 'staff', e.className || null,
     );
     if (emit) this.reloadEmployees();
     return Number(r.lastInsertRowid);
@@ -276,10 +279,11 @@ class LocalStore extends EventEmitter {
 
   updateEmployee(id, e) {
     this.q(`UPDATE employees SET name = ?, position = ?, phone = ?, telegram_chat_id = ?, schedule_id = ?, personal_schedule = ?,
-      access_profile_id = ?, pay_type = ?, hourly_rate = ?, active = ?, version = version + 1, updated_at = ? WHERE id = ?`).run(
+      access_profile_id = ?, pay_type = ?, hourly_rate = ?, active = ?, kind = ?, class_name = ?,
+      version = version + 1, updated_at = ? WHERE id = ?`).run(
       e.name, e.position || null, e.phone || null, e.telegramChatId || null, e.scheduleId || null,
       e.personalSchedule ? JSON.stringify(e.personalSchedule) : null, e.accessProfileId || null, payTypeOf(e.payType), Number(e.payRate) || 0,
-      e.active ? 1 : 0, nowIso(), id,
+      e.active ? 1 : 0, e.kind === 'student' ? 'student' : 'staff', e.className || null, nowIso(), id,
     );
     this.reloadEmployees();
   }

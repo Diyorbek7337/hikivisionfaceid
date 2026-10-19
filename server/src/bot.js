@@ -8,7 +8,7 @@
  * Anyone else gets the usual reply with their chat ID.
  */
 const { viewers } = require('./tgapp');
-const { buildDailyReport } = require('./report');
+const { buildDailyReport, studentsLine } = require('./report');
 const { daySummary } = require('./summary');
 const { localDate, localTime, formatDuration } = require('./time');
 
@@ -40,14 +40,18 @@ function createBotHandler({ store, cfg, telegram }) {
     if (cmd === '/bugun') {
       return { text: buildDailyReport(store, today, tz) || `📊 ${today}: bugun ishda bo'lishi kerak bo'lgan xodim yo'q (dam olish kuni).` };
     }
-    if (cmd === '/kelmaganlar') {
-      const rows = daySummary(store, today, tz).filter((r) => r.status === 'absent');
-      return { text: `❌ <b>Kelmaganlar — ${today}</b> (${rows.length})\n\n${list(rows, (r) => `• ${esc(r.employee.name)}${r.hours ? ` (${r.hours.start} dan)` : ''}`, 'Hamma kelgan 👍')}` };
-    }
-    if (cmd === '/kechikkanlar') {
-      const rows = daySummary(store, today, tz).filter((r) => r.status === 'late');
-      return { text: `⏰ <b>Kechikkanlar — ${today}</b> (${rows.length})\n\n${list(rows,
-        (r) => `• ${esc(r.employee.name)} — ${localTime(r.attendance.checkIn, tz)} (${formatDuration(r.attendance.lateMinutes)})`, 'Kechikkan yo\'q 👍')}` };
+    if (cmd === '/kelmaganlar' || cmd === '/kechikkanlar') {
+      const all = daySummary(store, today, tz);
+      const staff = all.filter((r) => r.employee.kind !== 'student');
+      const students = studentsLine(all.filter((r) => r.employee.kind === 'student'));
+      const more = students ? `\n${students}(o'quvchilar ro'yxati — mini ilovada, sinflar bo'yicha)` : '';
+      if (cmd === '/kelmaganlar') {
+        const rows = staff.filter((r) => r.status === 'absent');
+        return { text: `❌ <b>Kelmagan xodimlar — ${today}</b> (${rows.length})\n\n${list(rows, (r) => `• ${esc(r.employee.name)}${r.hours ? ` (${r.hours.start} dan)` : ''}`, 'Hamma kelgan 👍')}${more}` };
+      }
+      const rows = staff.filter((r) => r.status === 'late');
+      return { text: `⏰ <b>Kechikkan xodimlar — ${today}</b> (${rows.length})\n\n${list(rows,
+        (r) => `• ${esc(r.employee.name)} — ${localTime(r.attendance.checkIn, tz)} (${formatDuration(r.attendance.lateMinutes)})`, 'Kechikkan yo\'q 👍')}${more}` };
     }
     return null;
   };
