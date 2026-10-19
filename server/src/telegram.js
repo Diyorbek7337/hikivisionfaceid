@@ -11,14 +11,32 @@ function createTelegram({ token, adminIds = [] }) {
     body: JSON.stringify(body || {}),
   }).then(async (r) => {
     const data = await r.json().catch(() => ({}));
-    if (!data.ok) throw new Error(data.description || `HTTP ${r.status}`);
+    if (!data.ok) throw Object.assign(new Error(data.description || `HTTP ${r.status}`), { code: data.error_code || r.status });
     return data.result;
   });
 
   let running = false;
 
-  async function send(chatId, text, extra = {}) {
-    return api('sendMessage', { chat_id: chatId, text, parse_mode: 'HTML', disable_web_page_preview: true, ...extra });
+  // Telegram allows ~30 messages a second per bot: hundreds of children arriving at 8:00 go out one by one,
+  // ~20 a second, and a "Too Many Requests" answer waits as long as Telegram asks.
+  let queue = Promise.resolve();
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  function send(chatId, text, extra = {}) {
+    const job = queue.then(async () => {
+      for (let attempt = 0; ; attempt += 1) {
+        try {
+          const r = await api('sendMessage', { chat_id: chatId, text, parse_mode: 'HTML', disable_web_page_preview: true, ...extra });
+          await sleep(50);
+          return r;
+        } catch (err) {
+          const wait = /retry after (\d+)/i.exec(err.message);
+          if (wait && attempt < 3) { await sleep((Number(wait[1]) + 1) * 1000); continue; }
+          throw err;
+        }
+      }
+    });
+    queue = job.catch(() => {});
+    return job;
   }
 
   async function notifyAdmins(text) {

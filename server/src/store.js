@@ -6,7 +6,20 @@
  */
 const { EventEmitter } = require('node:events');
 const { newDeviceId } = require('./db');
+const crypto = require('node:crypto');
 const { punchesOf, summarizeDay, serializePunches } = require('./sessions');
+
+// No 0/O, 1/I/L: codes are typed from paper.
+const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+function newLinkCode() {
+  const bytes = crypto.randomBytes(8);
+  return [...bytes].map((b) => CODE_ALPHABET[b % CODE_ALPHABET.length]).join('');
+}
+/** "abcd-2345", " ABCD 2345 " -> "ABCD2345"; null when it cannot be a code. */
+function normCode(v) {
+  const c = String(v || '').toUpperCase().replace(/[\s-]/g, '');
+  return /^[A-Z2-9]{8}$/.test(c) ? c : null;
+}
 
 const DEFAULT_SETTINGS = {
   lateGraceMinutes: 5,
@@ -16,6 +29,7 @@ const DEFAULT_SETTINGS = {
   dailyReportEnabled: true,
   organizationName: '',
   dailyReportSentFor: '',
+  parentNotifications: true, // arrival / departure messages to linked parents
   telegramViewers: [], // [{ id, name }] who may open the Telegram mini app (read-only)
   accessPlansVersion: 0, // bumped when door entry schedules change; terminals store the version they have
 };
@@ -44,6 +58,7 @@ function mapEmployee(r) {
     position: r.position || '',
     kind: r.kind === 'student' ? 'student' : 'staff',
     className: r.class_name || '',
+    linkCode: r.link_code || '',
     phone: r.phone || '',
     telegramChatId: r.telegram_chat_id || '',
     scheduleId: r.schedule_id,
@@ -278,8 +293,10 @@ class LocalStore extends EventEmitter {
       payTypeOf(e.payType), Number(e.payRate) || 0, e.active === false ? 0 : 1,
       e.kind === 'student' ? 'student' : 'staff', e.className || null,
     );
+    const id = Number(r.lastInsertRowid);
+    if (e.kind === 'student') this.setLinkCode(id, { emit: false });
     if (emit) this.reloadEmployees();
-    return Number(r.lastInsertRowid);
+    return id;
   }
 
   updateEmployee(id, e) {
@@ -290,6 +307,7 @@ class LocalStore extends EventEmitter {
       e.personalSchedule ? JSON.stringify(e.personalSchedule) : null, e.accessProfileId || null, payTypeOf(e.payType), Number(e.payRate) || 0,
       e.active ? 1 : 0, e.kind === 'student' ? 'student' : 'staff', e.className || null, nowIso(), id,
     );
+    if (e.kind === 'student') this.ensureLinkCodes();
     this.reloadEmployees();
   }
 
@@ -298,6 +316,7 @@ class LocalStore extends EventEmitter {
     try {
       this.q('UPDATE employees SET deleted = 1, active = 0, has_face = 0, version = version + 1, updated_at = ? WHERE id = ?').run(nowIso(), id);
       this.q('DELETE FROM employee_faces WHERE employee_id = ?').run(id);
+      this.q('DELETE FROM parent_links WHERE employee_id = ?').run(id);
       this.db.exec('COMMIT');
     } catch (err) {
       this.db.exec('ROLLBACK');
@@ -320,6 +339,58 @@ class LocalStore extends EventEmitter {
     this.reloadEmployees();
     return ids;
   }
+
+  // ---------- parents ----------
+  /** Gives every active student a code (new students, and students from earlier versions). */
+  ensureLinkCodes() {
+    const missing = this.q("SELECT id FROM employees WHERE kind = 'student' AND deleted = 0 AND link_code IS NULL").all();
+    for (const r of missing) this.setLinkCode(r.id, { emit: false });
+    if (missing.length) this.reloadEmployees(false);
+    return missing.length;
+  }
+
+  /** New code for a student (the old one stops working; parents already linked stay). */
+  setLinkCode(id, { emit = true } = {}) {
+    for (let i = 0; i < 5; i += 1) {
+      try {
+        const code = newLinkCode();
+        this.q('UPDATE employees SET link_code = ? WHERE id = ?').run(code, id);
+        if (emit) this.reloadEmployees(false);
+        return code;
+      } catch (err) {
+        if (!/UNIQUE/i.test(err.message)) throw err;
+      }
+    }
+    throw new Error('Kod yaratib bo\'lmadi');
+  }
+
+  findStudentByCode(code) {
+    const c = normCode(code);
+    if (!c) return null;
+    for (const e of this.employees.values()) if (e.linkCode === c && e.kind === 'student' && !e.deleted && e.active) return e;
+    return null;
+  }
+
+  linkParent(employeeId, chatId, name) {
+    this.q('INSERT OR IGNORE INTO parent_links (employee_id, chat_id, name) VALUES (?, ?, ?)').run(employeeId, String(chatId), name || null);
+  }
+
+  parentChats(employeeId) {
+    return this.q('SELECT chat_id FROM parent_links WHERE employee_id = ?').all(employeeId).map((r) => r.chat_id);
+  }
+
+  childrenOf(chatId) {
+    return this.q('SELECT employee_id FROM parent_links WHERE chat_id = ?').all(String(chatId))
+      .map((r) => this.employees.get(r.employee_id)).filter((e) => e && !e.deleted);
+  }
+
+  /** Parent count per student id. */
+  parentCounts() {
+    return new Map(this.q('SELECT employee_id, COUNT(*) AS n FROM parent_links GROUP BY employee_id').all().map((r) => [r.employee_id, r.n]));
+  }
+
+  unlinkParents(employeeId) { return Number(this.q('DELETE FROM parent_links WHERE employee_id = ?').run(employeeId).changes); }
+  unlinkChat(chatId) { return Number(this.q('DELETE FROM parent_links WHERE chat_id = ?').run(String(chatId)).changes); }
 
   setFace(id, jpegBuffer) {
     if (jpegBuffer) {
@@ -532,4 +603,4 @@ class LocalStore extends EventEmitter {
   async setBridgeStatus() { /* local mode: status is served directly by the API */ }
 }
 
-module.exports = { LocalStore, DEFAULT_SETTINGS, weekdayOf, mapAttendance };
+module.exports = { normCode, newLinkCode, LocalStore, DEFAULT_SETTINGS, weekdayOf, mapAttendance };

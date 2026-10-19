@@ -5,6 +5,7 @@
  * Events are processed one at a time so two quick scans cannot overwrite each other's attendance.
  */
 const { processScan, notifyScan } = require('./attendance');
+const { notifyParents } = require('./parents');
 
 function eventKey(deviceId, ev) {
   if (ev.serialNo != null && ev.time) return `${deviceId}_${ev.serialNo}_${ev.time.getTime()}`;
@@ -71,6 +72,7 @@ function createEventProcessor({ store, tz, telegram, log = console }) {
       log.log(`ℹ️  ${ev.employeeNo} ${ev.name || ''}: ${result.action} (${device.name})`);
     }
     notifyScan(telegram, tz, result);
+    notifyParents({ store, telegram, tz, log }, result);
     return result.action;
   }
 

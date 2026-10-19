@@ -188,14 +188,14 @@ function createApi({ store, auth, cfg, sync, backup, clientFor, version }) {
   api.get('/status', (req, res) => {
     if (isTeacher(req)) {
       return res.json({
-        version, timezone: tz, today: localDate(new Date(), tz), telegram: !!cfg.botToken,
+        version, timezone: tz, today: localDate(new Date(), tz), telegram: !!cfg.botToken, botUsername: cfg.botUsername || '',
         settings: { organizationName: store.settings.organizationName || '' },
       });
     }
     return res.json({
       version, ips: lanAddresses(), port: cfg.port, hostname: os.hostname(), timezone: tz,
       today: localDate(new Date(), tz), settings: store.settings, telegram: !!cfg.botToken,
-      publicUrl: cfg.publicUrl || '', adminTelegramIds: cfg.adminTelegramIds || [],
+      publicUrl: cfg.publicUrl || '', adminTelegramIds: cfg.adminTelegramIds || [], botUsername: cfg.botUsername || '',
     });
   });
 
@@ -212,6 +212,7 @@ function createApi({ store, auth, cfg, sync, backup, clientFor, version }) {
       if (parseHHMM(b.dailyReportTime) == null) throw bad('Vaqt noto\'g\'ri');
       patch.dailyReportTime = b.dailyReportTime;
     }
+    if (b.parentNotifications !== undefined) patch.parentNotifications = !!b.parentNotifications;
     if (b.organizationName !== undefined) patch.organizationName = String(b.organizationName).trim().slice(0, 100);
     if (b.telegramViewers !== undefined) {
       if (!Array.isArray(b.telegramViewers) || b.telegramViewers.length > 50) throw bad('Ro\'yxat noto\'g\'ri');
@@ -287,7 +288,29 @@ function createApi({ store, auth, cfg, sync, backup, clientFor, version }) {
 
   // ---------- employees ----------
   api.get('/employees', (req, res) => {
-    res.json([...store.employees.values()].filter((e) => !e.deleted && (!isTeacher(req) || teaches(req, e))));
+    const parents = store.parentCounts();
+    res.json([...store.employees.values()].filter((e) => !e.deleted && (!isTeacher(req) || teaches(req, e)))
+      .map((e) => (e.kind === 'student' ? { ...e, parents: parents.get(e.id) || 0 } : e)));
+  });
+
+  // ---------- parents ----------
+  /** Printable slips: each student's code and the bot link (QR) for parents. Teachers: own classes only. */
+  api.get('/parents/slips', (req, res) => {
+    store.ensureLinkCodes();
+    const cls = req.query.class ? normClass(req.query.class) : '';
+    const parents = store.parentCounts();
+    const students = [...store.employees.values()]
+      .filter((e) => e.kind === 'student' && e.active && !e.deleted && (!cls || e.className === cls) && (!isTeacher(req) || teaches(req, e)))
+      .map((e) => ({ id: e.id, name: e.name, className: e.className, code: e.linkCode, parents: parents.get(e.id) || 0 }));
+    res.json({ botUsername: cfg.botUsername || '', organizationName: store.settings.organizationName || '', students });
+  });
+  api.post('/employees/:id/link-code', (req, res) => {
+    const e = store.getEmployee(Number(req.params.id));
+    if (!e || e.deleted || e.kind !== 'student') throw new HttpError(404, 'O\'quvchi topilmadi');
+    res.json({ code: store.setLinkCode(e.id) });
+  });
+  api.delete('/employees/:id/parents', (req, res) => {
+    res.json({ removed: store.unlinkParents(Number(req.params.id)) });
   });
 
   api.post('/employees', (req, res) => {
@@ -326,7 +349,7 @@ function createApi({ store, auth, cfg, sync, backup, clientFor, version }) {
   api.get('/employees/:id', (req, res) => {
     const e = store.getEmployee(Number(req.params.id));
     if (!e || e.deleted) throw new HttpError(404, 'Xodim topilmadi');
-    res.json(e);
+    res.json(e.kind === 'student' ? { ...e, parents: store.parentChats(e.id).length } : e);
   });
 
   api.put('/employees/:id', (req, res) => {

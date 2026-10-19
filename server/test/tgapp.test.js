@@ -119,7 +119,11 @@ test('bot: viewers get the mini app button and quick summaries, others are ignor
   const start = await handle(msg(111, '/start'));
   assert.equal(start.extra.reply_markup.inline_keyboard[0][0].web_app.url, 'https://maktab.example.ts.net/tg/');
   assert.equal(calls[0][0], 'setChatMenuButton');
-  assert.equal(await handle(msg(999, '/start')), null, 'stranger: default chat-ID reply');
+  const stranger = await handle(msg(999, '/start'));
+  assert.match(stranger.text, /Ota-onalar/);
+  assert.match(stranger.text, /999/, 'staff see their chat ID');
+  assert.equal(stranger.extra, undefined, 'no mini app button for strangers');
+  assert.equal(await handle(msg(999, '/bugun')), null, 'viewer commands are not for strangers');
   store.createEmployee({ name: 'Aziz' });
   assert.match((await handle(msg(111, '/kelmaganlar'))).text, /Kelmagan xodimlar/);
   assert.match((await handle(msg(111, '/kechikkanlar'))).text, /Kechikkan yo'q/);

@@ -153,3 +153,32 @@ tr.clickable { cursor: pointer; } tr.clickable:hover td { background: var(--bg);
 .tabs button.on { background: var(--brand); color: var(--brand-text); }
 tr.selected-row td { background: var(--warn-bg); }
 .big-shot { width: 100%; padding: 28px 12px; font-size: 20px; border-radius: 14px; }
+
+/* ---------- parents' slips (/parents) ---------- */
+.slips { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 12px; }
+.slip { background: #fff; color: #111; border: 1px dashed #999; border-radius: 8px; padding: 10px 12px; break-inside: avoid; page-break-inside: avoid; }
+.slip .muted { color: #555; }
+.slip-head { font-size: 11px; color: #555; border-bottom: 1px solid #eee; padding-bottom: 4px; margin-bottom: 6px; }
+.slip-body { display: flex; gap: 12px; align-items: center; }
+.slip-qr { width: 110px; height: 110px; flex: none; background: #f3f3f3; }
+.slip-name { font-weight: 700; font-size: 16px; line-height: 1.2; }
+.slip-code { font: 700 22px/1.2 ui-monospace, Consolas, monospace; letter-spacing: 2px; margin-top: 6px; }
+.slip-steps { margin: 8px 0 4px; padding-left: 18px; font-size: 11.5px; }
+.slip-foot { font-size: 10.5px; color: #555; }
+.slip-short { display: none; }
+@media print {
+  @page { size: A4; margin: 6mm; }
+  body { background: #fff !important; }
+  header.top, .no-print { display: none !important; }
+  main { padding: 0 !important; max-width: none !important; }
+  /* 2 x 6 = 12 slips per A4 page */
+  .slips { grid-template-columns: 1fr 1fr; gap: 2mm; }
+  .slip { height: 45.5mm; overflow: hidden; padding: 2mm 3mm; border-radius: 0; }
+  .slip-head { font-size: 8pt; padding-bottom: 1mm; margin-bottom: 1.5mm; }
+  .slip-qr { width: 27mm; height: 27mm; }
+  .slip-name { font-size: 11pt; }
+  .slip-code { font-size: 15pt; margin-top: 1mm; }
+  .slip-steps, .slip-foot { display: none; }
+  .slip-body { align-items: flex-start; }
+  .slip-short { display: block; font-size: 7.5pt; line-height: 1.25; margin-top: 1mm; color: #333; }
+}

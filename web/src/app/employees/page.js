@@ -56,7 +56,7 @@ export default function Employees() {
       <div className="card">
         <table>
           <thead><tr>
-            <th></th><th>ID</th><th>Ism</th><th>{students ? 'Sinf' : 'Lavozim'}</th><th>Jadval</th>{!students && <th>Stavka</th>}
+            <th></th><th>ID</th><th>Ism</th><th>{students ? 'Sinf' : 'Lavozim'}</th><th>Jadval</th>{students ? <th title="Telegram'ga ulangan ota-onalar">Ota-ona</th> : <th>Stavka</th>}
             {devs.map((d) => <th key={d.id}>{d.name}</th>)}<th></th>
           </tr></thead>
           <tbody>
@@ -70,7 +70,8 @@ export default function Employees() {
                   {e.personalSchedule && e.personalSchedule.type !== 'flexible'
                     && <span title={scheduleSummary(e.personalSchedule)}>Shaxsiy: <span className="muted">{scheduleSummary(e.personalSchedule)}</span></span>}
                   {!e.personalSchedule && (sched.get(e.scheduleId) || defaultSched)}</td>
-                {!students && <td className="nw">{rateText(e.payType, e.payRate, money)}</td>}
+                {students ? <td>{e.parents ? <span className="pill ok">{e.parents}</span> : <span className="muted">—</span>}</td>
+                  : <td className="nw">{rateText(e.payType, e.payRate, money)}</td>}
                 {devs.map((d) => <td key={d.id}><SyncBadge employee={e} device={d} /></td>)}
                 <td><Link href={`/employees/edit/?id=${e.id}`}>Tahrirlash</Link></td>
               </tr>

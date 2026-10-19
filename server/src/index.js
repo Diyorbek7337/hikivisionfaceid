@@ -65,6 +65,7 @@ function clientFor(dev) {
   const removed = store.pruneEventsBeforeDevices(deviceBoundAt);
   if (removed) console.log(`🧹 Terminal xotirasidagi eski eventlar o'chirildi: ${removed} ta`);
 }
+store.ensureLinkCodes(); // students from before parent codes existed
 const sync = new SyncEngine({ store, clientFor });
 const monitor = new DeviceMonitor({ store, clientFor, tz: cfg.timezone, onOnline: () => sync.schedule() });
 const telegram = createTelegram({ token: cfg.botToken, adminIds: cfg.adminTelegramIds });
@@ -132,6 +133,9 @@ ${owner
   if (telegram.enabled) {
     console.log('🤖 Telegram bot yoqilgan');
     telegram.startPolling(createBotHandler({ store, cfg, telegram }));
+    // the bot's @username, for the parents' QR links
+    telegram.call('getMe').then((me) => { cfg.botUsername = me.username || ''; console.log(`   Bot: @${cfg.botUsername}`); })
+      .catch((e) => console.error('Telegram getMe:', e.message));
     if (cfg.publicUrl) console.log(`📱 Telegram mini ilova: ${cfg.publicUrl}/tg/`);
     startDailyReport({ store, telegram, tz: cfg.timezone });
   }

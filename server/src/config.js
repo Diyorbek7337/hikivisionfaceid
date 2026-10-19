@@ -15,6 +15,7 @@ function loadConfig(env = process.env) {
     backupDir: path.join(dataDir, 'backups'),
     webDir: resolve(env.WEB_DIR || '../web/out'),
     botToken: env.BOT_TOKEN || '',
+    botUsername: String(env.BOT_USERNAME || '').replace(/^@/, ''), // normally read from Telegram at start
     adminTelegramIds: list(env.ADMIN_TELEGRAM_IDS),
     // Public HTTPS address of this server (Tailscale Funnel / Cloudflare Tunnel) for the Telegram mini app.
     // Only the mini app is reachable through it; the admin panel stays inside the local network.

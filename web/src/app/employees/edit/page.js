@@ -105,6 +105,7 @@ function EmployeeForm() {
       <h1>{id ? `${student ? 'O\'quvchini' : 'Xodimni'} tahrirlash — ID ${original ? original.employeeNo : ''}` : student ? 'Yangi o\'quvchi' : 'Yangi xodim'}</h1>
       {error && <div className="flash error">{error}</div>}
       <form onSubmit={save}>
+        {id && original && original.kind === 'student' && student && <ParentsCard student={original} onChange={(o) => setOriginal(o)} />}
         <div className="card">
           <h2>Yuz rasmi</h2>
           <FacePicker src={src} onChange={setFace} />
@@ -168,5 +169,36 @@ function EmployeeForm() {
         xodim terminallardan o&apos;chiriladi (tarixi saqlanadi).
       </p>
     </>
+  );
+}
+
+/** Student's parents: the code for the bot, how many are linked, new code / unlink. */
+function ParentsCard({ student, onChange }) {
+  const [msg, setMsg] = useState('');
+  async function newCode() {
+    if (!confirm('Yangi kod yaratilsinmi? Eski kod (varaqadagi) ishlamay qoladi. Ulangan ota-onalar ulanganicha qoladi.')) return;
+    const r = await api(`/employees/${student.id}/link-code`, { method: 'POST' });
+    onChange({ ...student, linkCode: r.code });
+    setMsg('Yangi kod yaratildi — varaqani qayta chop eting.');
+  }
+  async function unlink() {
+    if (!confirm('Bu o\'quvchiga ulangan barcha ota-onalar uzilsinmi? Ularga xabar borishi to\'xtaydi.')) return;
+    const r = await api(`/employees/${student.id}/parents`, { method: 'DELETE' });
+    onChange({ ...student, parents: 0 });
+    setMsg(`${r.removed} ta ulanish o'chirildi.`);
+  }
+  const code = student.linkCode ? `${student.linkCode.slice(0, 4)} ${student.linkCode.slice(4)}` : '—';
+  return (
+    <div className="card">
+      <h2>👨‍👩‍👧 Ota-onalar</h2>
+      <p>Telegram bot uchun kod: <code style={{ fontSize: 18, letterSpacing: 2 }}>{code}</code> · ulangan: <b>{student.parents || 0}</b> ta</p>
+      {msg && <p className="ok">{msg}</p>}
+      <div className="row">
+        <Link className="btn secondary small" href="/parents/">🖨 Varaqalar</Link>
+        <button type="button" className="secondary small" onClick={newCode}>Yangi kod</button>
+        {student.parents > 0 && <button type="button" className="secondary small" onClick={unlink}>Ota-onalarni uzish</button>}
+      </div>
+      <p className="hint">Begona odam ulanib qolgan bo&apos;lsa: &quot;Ota-onalarni uzish&quot; → &quot;Yangi kod&quot; → yangi varaqani ota-onaga bering.</p>
+    </div>
   );
 }

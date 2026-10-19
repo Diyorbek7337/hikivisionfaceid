@@ -116,6 +116,17 @@ CREATE TABLE IF NOT EXISTS access_profiles (
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
 
+-- Parents' Telegram chats linked to a student (by the student's code); they get arrival / departure messages.
+CREATE TABLE IF NOT EXISTS parent_links (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+  chat_id TEXT NOT NULL,
+  name TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  UNIQUE (employee_id, chat_id)
+);
+CREATE INDEX IF NOT EXISTS parent_links_chat ON parent_links (chat_id);
+
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -169,6 +180,9 @@ function migrate(db) {
   // 'staff' or 'student'; students belong to a class ("9-A")
   if (!empCols.includes('kind')) db.exec("ALTER TABLE employees ADD COLUMN kind TEXT NOT NULL DEFAULT 'staff'");
   if (!empCols.includes('class_name')) db.exec('ALTER TABLE employees ADD COLUMN class_name TEXT');
+  // secret code a parent sends to the bot to receive this student's messages
+  if (!empCols.includes('link_code')) db.exec('ALTER TABLE employees ADD COLUMN link_code TEXT');
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS employees_link_code ON employees (link_code) WHERE link_code IS NOT NULL');
   if (!empCols.includes('personal_schedule')) db.exec('ALTER TABLE employees ADD COLUMN personal_schedule TEXT');
 }
 

@@ -47,6 +47,9 @@ export default function Settings() {
             <input type="checkbox" checked={!!form.dailyReportEnabled} onChange={set('dailyReportEnabled')} /> Har kuni hisobot yuborish
           </label>
           <label>Yuborish vaqti<input type="time" value={form.dailyReportTime} onChange={set('dailyReportTime')} /></label>
+          <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <input type="checkbox" checked={form.parentNotifications !== false} onChange={set('parentNotifications')} /> Ota-onalarga farzandi kelganda / chiqqanda xabar yuborish
+          </label>
         </div>
         <div className="row" style={{ marginTop: 12 }}><button>Saqlash</button> <span className="ok">{msg}</span></div>
       </form>

@@ -11,14 +11,15 @@ const Ctx = createContext(null);
 export const useApp = () => useContext(Ctx);
 
 /** Class teachers: only the pages about their own students. */
-const TEACHER_LINKS = [['/', 'Bugun'], ['/faces/', 'Yuzlar'], ['/reports/', 'Hisobot']];
-const TEACHER_PATHS = ['/', '/faces/', '/reports/'];
+const TEACHER_LINKS = [['/', 'Bugun'], ['/faces/', 'Yuzlar'], ['/reports/', 'Hisobot'], ['/parents/', 'Ota-onalar']];
+const TEACHER_PATHS = ['/', '/faces/', '/reports/', '/parents/'];
 
 const LINKS = [
   ['/', 'Bugun'],
   ['/employees/', 'Xodimlar'],
   ['/faces/', 'Yuzlar'],
   ['/reports/', 'Hisobot'],
+  ['/parents/', 'Ota-onalar'],
   ['/schedules/', 'Jadvallar'],
   ['/devices/', 'Terminallar'],
   ['/events/', 'Eventlar'],
