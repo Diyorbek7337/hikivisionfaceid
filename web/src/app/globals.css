@@ -182,3 +182,5 @@ tr.selected-row td { background: var(--warn-bg); }
   .slip-body { align-items: flex-start; }
   .slip-short { display: block; font-size: 7.5pt; line-height: 1.25; margin-top: 1mm; color: #333; }
 }
+.tg-scope { flex-wrap: wrap; }
+.tg-scope select { flex: 1; min-width: 140px; margin: 0; background: var(--t-card); color: var(--t-text); }

@@ -14,6 +14,8 @@ serverlari kerak emas, ma'lumotlar tashkilot ichida qoladi.
 - ✅ Terminalda yuz ko'rsatilsa — **keldi/ketdi**, kechikish, erta ketish, ishlagan soat hisoblanadi.
   Bir kunda **bir necha marta kelib-ketish** alohida hisoblanadi (08:00–10:00 + 14:00–16:00 = 4 soat).
 - 💰 To'lov: **soatbay**, **kunbay** yoki **har bir kelish uchun (darsbay)**.
+- 👦 **O'quvchilar**: sinflar bo'yicha davomat, **sinf rahbari** o'z sinfining yuzlarini o'zi kiritadi,
+  **ota-onalarga Telegram**'da "farzandingiz maktabga keldi / chiqdi" xabari.
 - 🚪 **Elektron eshik**: yuz tanilganda terminal eshikni o'zi ochadi; web ilovadan **"Eshikni ochish"** tugmasi;
   xodimlarga **vaqt bo'yicha kirish ruxsati** (masalan, faqat Du–Sh 07:00–19:00).
 - 📊 **Bugun** sahifasi (jonli), **hisobot** (kelgan/kelmagan kunlar, kechikishlar), Excel'ga yuklab olish,
@@ -143,6 +145,37 @@ Xodimlar ro'yxatida har terminal ustunida: **✓** — terminalga yozildi, **⏳
 **✗** — xato (masalan "Rasmda yuz aniq ko'rinmayapti" — boshqa rasm oling).
 
 Xodim ishdan ketsa: **Tahrirlash → "Faol" belgisini olib tashlang** — u terminallardan o'chiriladi, tarixi saqlanadi.
+
+---
+
+## 3.4. O'quvchilar (maktab)
+
+O'quvchilar xodimlar bilan bir xil terminallardan o'tadi; tizimda ular alohida bo'limda, sinflar bo'yicha.
+
+1. **Xodimlar → 👦 O'quvchilar → Excel'dan import.** Faylda **F.I.Sh.** (yoki Familiya, Ism) va **Sinf** ustuni
+   (9-A, 9 a, 9-а — hammasi "9-A" bo'ladi). Har bir sinf alohida faylda bo'lsa — sinfni importda yozasiz.
+   O'quvchilar uchun ish jadvali (smena) importda tanlanadi.
+2. **Sinf rahbarlari:** Sozlamalar → Foydalanuvchilar → huquq **"Sinf rahbari"**, sinflari (masalan `9-A, 9-B`).
+   Sinf rahbari telefonda maktab Wi-Fi'siga ulanib `http://<server IP>:3001` ni ochadi, o'z login-paroli bilan kiradi va
+   faqat o'z sinfini ko'radi: **Yuzlar** (📷 Rasmga olish → Saqlash → keyingi bola), **Bugun**, **Hisobot**, **Ota-onalar**.
+   Xodimlar, terminallar, sozlamalar va davomatni o'zgartirish unga yopiq.
+3. **Ota-onalar rozilik** bermagan bolaning yuzini kiritmang (yozma rozilik maktabda saqlanadi).
+
+**Bugun** sahifasida O'quvchilar bo'limi: sinflar jadvali (keldi / kechikdi / kelmadi) — sinfni bossangiz, o'sha sinf ro'yxati.
+Kunlik Telegram hisobotda o'quvchilar faqat son bilan; o'quvchi kechiksa direktorga alohida xabar ketmaydi.
+
+### Ota-onalarga Telegram xabar
+
+Har bir o'quvchining maxfiy **kodi** bor. **Ota-onalar** sahifasida sinfni tanlab, **🖨 Chop etish** — har bir bolaga
+QR kodli varaqa (A4 ga 12 ta). Varaqani qirqib, bola orqali uyiga yuborasiz.
+
+Ota-ona QR kodni telefon kamerasi bilan ochadi → Telegram bot → **START** (yoki botga kodni yozib yuboradi). Shundan keyin:
+`✅ Farzandingiz Aliyev Jasur (9-A) maktabga keldi — 07:52` · `👋 … maktabdan chiqdi — 13:15`.
+Bir nechta farzand bo'lsa — har birining kodini yuboradi. Botda: `/farzandlarim` (hozir maktabdami), `/uzish`.
+
+- Kim hali ulanmaganini Ota-onalar sahifasida ("Faqat hali ulanmaganlar") va o'quvchilar ro'yxatida ko'rasiz.
+- Kod begonaning qo'liga tushsa: o'quvchi kartasi → **Ota-onalarni uzish** → **Yangi kod** → yangi varaqa.
+- Xabarlarni o'chirish: Sozlamalar → "Ota-onalarga … xabar yuborish".
 
 ---
 

@@ -51,6 +51,14 @@ KERAK: doim yoqiq turadigan Windows 10/11 kompyuter, terminallar bilan bitta tar
      telefonni shu Wi-Fi ga ulab, http://<kompyuter IP>:3001 ni oching.
    - Xodimlar ro'yxatida terminal ustunlarida hammada ✓ bo'lsin.
 
+8a. O'QUVCHILAR (maktab)
+   - Xodimlar -> "O'quvchilar" -> Excel'dan import (F.I.Sh. + Sinf ustuni).
+   - Sozlamalar -> Foydalanuvchilar: har bir sinf rahbariga login, huquq "Sinf rahbari",
+     sinflari (9-A, 9-B). Ular telefonda o'z sinfi yuzlarini o'zlari kiritadi.
+   - Ota-onalar sahifasi -> sinf -> Chop etish: QR kodli varaqalar ota-onalarga.
+     Ota-ona QR ni skanerlaydi -> bot -> START -> farzandi kelib-ketganda xabar oladi.
+   - Ota-onalarning yozma roziligisiz bolaning yuzini kiritmang.
+
 9. SINOV
    3-4 kishi Kirish va Chiqish terminalida yuz ko'rsatsin -> "Bugun" sahifasida
    Keldi / Ketdi chiqishini tekshiring.

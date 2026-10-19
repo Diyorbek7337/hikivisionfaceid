@@ -5,6 +5,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { addDays, formatDuration, localTime, normText, setTimezone } from '@/lib/time';
+import { compareClasses } from '@/lib/people';
 
 const STATUS = {
   present: ['Keldi', 'ok'],
@@ -33,6 +34,7 @@ export default function MiniApp() {
   const [auth, setAuth] = useState(null); // { token, name, organizationName, today }
   const [error, setError] = useState('');
   const [tab, setTab] = useState('today');
+  const [scope, setScope] = useState({ kind: 'staff', cls: '' }); // kept when switching tabs
 
   useEffect(() => {
     let cancelled = false;
@@ -80,12 +82,13 @@ export default function MiniApp() {
           <button className={tab === 'report' ? 'on' : ''} onClick={() => setTab('report')}>Hisobot</button>
         </div>
       </header>
-      {tab === 'today' ? <Today get={get} today={auth.today} /> : <Report get={get} today={auth.today} />}
+      {tab === 'today' ? <Today get={get} today={auth.today} scope={scope} setScope={setScope} />
+        : <Report get={get} today={auth.today} scope={scope} setScope={setScope} />}
     </div>
   );
 }
 
-function Today({ get, today }) {
+function Today({ get, today, scope, setScope }) {
   const [date, setDate] = useState(today);
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
@@ -101,7 +104,11 @@ function Today({ get, today }) {
     return () => clearInterval(t);
   }, [load, date, today]);
 
-  const rows = useMemo(() => (data ? data.rows : []), [data]);
+  const allRows = useMemo(() => (data ? data.rows : []), [data]);
+  const hasStudents = allRows.some((r) => r.kind === 'student');
+  const students = hasStudents && scope.kind === 'student';
+  const ofKind = allRows.filter((r) => !hasStudents || (students ? r.kind === 'student' : r.kind !== 'student'));
+  const rows = ofKind.filter((r) => !students || !scope.cls || r.className === scope.cls);
   const count = (f) => rows.filter(f).length;
   const FILTERS = [
     ['all', 'Jami', (r) => !['off', 'free'].includes(r.status) || r.checkIn || r.checkOut, ''],
@@ -111,7 +118,9 @@ function Today({ get, today }) {
     ['inside', 'Ichkarida', (r) => r.inside, ''],
   ];
   const active = FILTERS.find((f) => f[0] === filter) || FILTERS[0];
-  const shown = rows.filter(active[2]).filter((r) => !q || normText(`${r.name} ${r.position}`).includes(normText(q)));
+  // hundreds of students: the full list only for a class, a status (late / absent …) or a search
+  const tooMany = students && !scope.cls && filter === 'all' && !q;
+  const shown = tooMany ? [] : rows.filter(active[2]).filter((r) => !q || normText(`${r.name} ${r.position} ${r.className || ''}`).includes(normText(q)));
 
   return (
     <>
@@ -124,6 +133,8 @@ function Today({ get, today }) {
         <button className="tg-icon" onClick={() => setDate(addDays(date, 1))} disabled={date >= today} aria-label="Keyingi kun">›</button>
       </div>
       {error && <div className="tg-card tg-err">{error}</div>}
+      {hasStudents && <ScopeBar scope={scope} setScope={setScope} classes={classesOf(allRows)} />}
+      {students && !scope.cls && <ClassTable rows={ofKind} onPick={(c) => setScope({ ...scope, cls: c })} />}
       <div className="tg-stats">
         {FILTERS.map(([key, label, f, cls]) => (
           <button key={key} className={`tg-stat ${filter === key ? 'on' : ''}`} onClick={() => setFilter(key)}>
@@ -132,7 +143,8 @@ function Today({ get, today }) {
         ))}
       </div>
       <input className="tg-search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="🔍 Ism yoki lavozim" />
-      {data && !shown.length && <p className="tg-muted tg-msg">{filter === 'absent' ? 'Kelmagan yo\'q 👍' : filter === 'late' ? 'Kechikkan yo\'q 👍' : 'Hech kim yo\'q'}</p>}
+      {tooMany && data && <p className="tg-muted tg-msg">Sinfni tanlang yoki &quot;Kelmagan&quot; / &quot;Kechikkan&quot; ni bosing.</p>}
+      {data && !tooMany && !shown.length && <p className="tg-muted tg-msg">{filter === 'absent' ? 'Kelmagan yo\'q 👍' : filter === 'late' ? 'Kechikkan yo\'q 👍' : 'Hech kim yo\'q'}</p>}
 
       {/* phone: cards */}
       <div className="tg-list only-narrow">
@@ -140,7 +152,7 @@ function Today({ get, today }) {
           <div key={r.id} className="tg-row">
             <div className="tg-row-main">
               <div className="tg-name">{r.name}</div>
-              <div className="tg-muted tg-small">{r.position}{r.hours ? `${r.position ? ' · ' : ''}${r.hours.start}–${r.hours.end}` : ''}</div>
+              <div className="tg-muted tg-small">{r.kind === 'student' ? r.className : r.position}{r.hours ? ` · ${r.hours.start}–${r.hours.end}` : ''}</div>
             </div>
             <div className="tg-row-side">
               <StatusPill r={r} />
@@ -153,11 +165,11 @@ function Today({ get, today }) {
       {/* wide screen (Telegram Desktop): table */}
       {shown.length > 0 && (
         <table className="tg-table only-wide">
-          <thead><tr><th>Xodim</th><th>Lavozim</th><th>Ish vaqti</th><th>Keldi</th><th>Ketdi</th><th>Ishlagan</th><th>Holat</th></tr></thead>
+          <thead><tr><th>{students ? 'O\'quvchi' : 'Xodim'}</th><th>{students ? 'Sinf' : 'Lavozim'}</th><th>Ish vaqti</th><th>Keldi</th><th>Ketdi</th><th>Ishlagan</th><th>Holat</th></tr></thead>
           <tbody>
             {shown.map((r) => (
               <tr key={r.id}>
-                <td>{r.name}</td><td className="tg-muted">{r.position}</td>
+                <td>{r.name}</td><td className="tg-muted">{r.kind === 'student' ? r.className : r.position}</td>
                 <td>{r.hours ? `${r.hours.start}–${r.hours.end}` : <span className="tg-muted">{r.flexible ? 'erkin' : '—'}</span>}</td>
                 <td>{localTime(r.checkIn)}</td>
                 <td>{r.inside ? <span className="tg-pill ok">ichkarida</span> : localTime(r.checkOut)}</td>
@@ -185,7 +197,7 @@ function StatusPill({ r }) {
 
 function monthStart(d) { return `${d.slice(0, 8)}01`; }
 
-function Report({ get, today }) {
+function Report({ get, today, scope, setScope }) {
   const presets = useMemo(() => {
     const lastMonthEnd = addDays(monthStart(today), -1);
     const dow = (new Date(`${today}T12:00:00Z`).getUTCDay() + 6) % 7; // Monday = 0
@@ -207,7 +219,11 @@ function Report({ get, today }) {
     get(`/report?from=${range.from}&to=${range.to}`).then((d) => { setData(d); setError(''); }).catch((e) => setError(e.message));
   }, [get, range]);
 
-  const all = data ? data.summary : [];
+  const everyone = data ? data.summary : [];
+  const hasStudents = everyone.some((x) => x.kind === 'student');
+  const students = hasStudents && scope.kind === 'student';
+  const all = everyone.filter((x) => !hasStudents || (students ? x.kind === 'student' : x.kind !== 'student'))
+    .filter((x) => !students || !scope.cls || x.className === scope.cls);
   const FILTERS = [
     ['absent', 'Kelmaganlar', (s) => s.absentDays > 0, (a, b) => b.absentDays - a.absentDays || b.lateCount - a.lateCount],
     ['late', 'Kechikkanlar', (s) => s.lateCount > 0, (a, b) => b.lateCount - a.lateCount || b.lateMinutes - a.lateMinutes],
@@ -230,6 +246,7 @@ function Report({ get, today }) {
         <input type="date" value={range.to} max={today} onChange={(e) => e.target.value && setRange((r) => ({ ...r, key: '', to: e.target.value }))} />
       </div>
       {error && <div className="tg-card tg-err">{error}</div>}
+      {hasStudents && <ScopeBar scope={scope} setScope={setScope} classes={classesOf(everyone)} />}
       <div className="tg-stats">
         {FILTERS.map(([key, label]) => (
           <button key={key} className={`tg-stat ${filter === key ? 'on' : ''}`} onClick={() => setFilter(key)}>
@@ -255,7 +272,7 @@ function Report({ get, today }) {
               <div className="tg-row-main">
                 <div className="tg-name">{s.name}</div>
                 <div className="tg-muted tg-small only-narrow">
-                  {s.flexible ? 'erkin jadval · ' : ''}kelgan {s.presentDays}{s.flexible ? '' : `/${s.workDays}`} kun · {formatDuration(s.workedMinutes)}
+                  {s.kind === 'student' ? `${s.className} · ` : ''}{s.flexible ? 'erkin jadval · ' : ''}kelgan {s.presentDays}{s.flexible ? '' : `/${s.workDays}`} kun · {formatDuration(s.workedMinutes)}
                 </div>
               </div>
               <div className="tg-num only-wide">{s.flexible ? 'erkin' : s.workDays}</div>
@@ -289,6 +306,55 @@ function Details({ s }) {
           ))}</ul>
         ) : <p className="tg-muted">yo&apos;q</p>}
       </div>
+    </div>
+  );
+}
+
+function classesOf(list) {
+  return [...new Set(list.filter((x) => x.kind === 'student' && x.className).map((x) => x.className))].sort(compareClasses);
+}
+
+/** Staff / students switch and the class picker. */
+function ScopeBar({ scope, setScope, classes }) {
+  return (
+    <div className="tg-bar tg-scope">
+      <div className="tg-chips" style={{ margin: 0 }}>
+        <button className={scope.kind === 'staff' ? 'on' : ''} onClick={() => setScope({ kind: 'staff', cls: '' })}>👔 Xodimlar</button>
+        <button className={scope.kind === 'student' ? 'on' : ''} onClick={() => setScope({ kind: 'student', cls: '' })}>👦 O&apos;quvchilar</button>
+      </div>
+      {scope.kind === 'student' && (
+        <select value={scope.cls} onChange={(e) => setScope({ ...scope, cls: e.target.value })}>
+          <option value="">Barcha sinflar</option>
+          {classes.map((c) => <option key={c} value={c}>{c}</option>)}
+        </select>
+      )}
+    </div>
+  );
+}
+
+/** Per class: came / expected, late, absent — tap a class to see its students. */
+function ClassTable({ rows, onPick }) {
+  const m = new Map();
+  for (const r of rows) {
+    if (!m.has(r.className)) m.set(r.className, { name: r.className, total: 0, came: 0, late: 0, absent: 0 });
+    const c = m.get(r.className);
+    if (!['off', 'free'].includes(r.status)) c.total += 1;
+    if (r.status === 'present' || r.status === 'late') c.came += 1;
+    if (r.status === 'late') c.late += 1;
+    if (r.status === 'absent') c.absent += 1;
+  }
+  const list = [...m.values()].sort((a, b) => compareClasses(a.name, b.name));
+  return (
+    <div className="tg-list" style={{ marginBottom: 10 }}>
+      <div className="tg-row tg-row-head"><div className="tg-row-main">Sinf</div><div className="tg-num">Keldi</div><div className="tg-num">Kech.</div><div className="tg-num">Kelmadi</div></div>
+      {list.map((c) => (
+        <button key={c.name} className="tg-row tg-click" onClick={() => onPick(c.name)}>
+          <div className="tg-row-main tg-name">{c.name}</div>
+          <div className="tg-num ok">{c.came}/{c.total}</div>
+          <div className={`tg-num ${c.late ? 'warn' : 'tg-muted'}`}>{c.late}</div>
+          <div className={`tg-num ${c.absent ? 'bad' : 'tg-muted'}`}>{c.absent}</div>
+        </button>
+      ))}
     </div>
   );
 }
