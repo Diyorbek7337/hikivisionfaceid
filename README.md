@@ -179,6 +179,19 @@ Bir nechta farzand bo'lsa — har birining kodini yuboradi. Botda: `/farzandlari
 
 ---
 
+## 3.5. Edume CRM bilan ulash (o'quv markazlari)
+
+1. Edume → Sozlamalar → **Face ID davomat** → **Qurilma yaratish** (direktor) → ulanish kodini nusxalang.
+2. Davomat → Sozlamalar → **Edume CRM** → kodni qo'ying → **Ulash**.
+
+Shundan keyin o'quvchilar va guruhlar Edume'dan har 10 daqiqada olinadi (Davomatda ular "Edume" belgisi bilan;
+ism, guruh va jadval Edume'da o'zgartiriladi — bu yerda faqat yuzini kiritasiz). Dars vaqtida yuz ko'rsatilsa Edume
+davomatiga **present / late** yoziladi; dars tugagach (+15 daqiqa) yuzi kiritilgan, belgisi yo'q o'quvchiga **absent**
+(o'sha kuni hech kim skanerlanmagan bo'lsa — terminal ishlamagan — qo'yilmaydi). Ota-onaga Edume'ning o'z boti orqali
+xabar boradi. Edume tomonida Firestore qoidalarida `device` roli bo'lishi kerak.
+
+---
+
 ## 4. Kundalik ish
 
 - **Bugun** — kim keldi, kechikdi, kelmadi (kartochkani bossangiz — shu ro'yxat filtrlanadi).
