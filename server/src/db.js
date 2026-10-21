@@ -183,6 +183,9 @@ function migrate(db) {
   // secret code a parent sends to the bot to receive this student's messages
   if (!empCols.includes('link_code')) db.exec('ALTER TABLE employees ADD COLUMN link_code TEXT');
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS employees_link_code ON employees (link_code) WHERE link_code IS NOT NULL');
+  // id of the same person in a connected CRM (Edume: centers/{c}/students/{id}); synced students are managed there
+  if (!empCols.includes('external_id')) db.exec('ALTER TABLE employees ADD COLUMN external_id TEXT');
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS employees_external_id ON employees (external_id) WHERE external_id IS NOT NULL');
   if (!empCols.includes('personal_schedule')) db.exec('ALTER TABLE employees ADD COLUMN personal_schedule TEXT');
 }
 

@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { api, useApi } from '@/lib/api';
 import { useApp } from '@/components/AppShell';
 import { classList } from '@/lib/people';
+import { localDateTime } from '@/lib/time';
 
 export default function Settings() {
   const { status, reloadStatus, user } = useApp();
@@ -53,6 +54,8 @@ export default function Settings() {
         </div>
         <div className="row" style={{ marginTop: 12 }}><button>Saqlash</button> <span className="ok">{msg}</span></div>
       </form>
+
+      <Crm />
 
       <Viewers status={status} reloadStatus={reloadStatus} />
 
@@ -245,6 +248,67 @@ function RightsForm({ user, classes, onClose }) {
         <p className="hint">Saqlangach, bu foydalanuvchi qayta kiradi (yangi huquq darhol ishlaydi).</p>
         <div className="row"><button>Saqlash</button><button type="button" className="secondary" onClick={() => onClose(false)}>Bekor qilish</button></div>
       </form>
+    </div>
+  );
+}
+
+/** Edume CRM: connect with the code from Edume → Sozlamalar → "Face ID qurilmasi". */
+function Crm() {
+  const { data, reload, error } = useApi('/crm');
+  const [code, setCode] = useState('');
+  const [busy, setBusy] = useState('');
+  const [err, setErr] = useState('');
+  const run = async (what, fn) => {
+    setBusy(what); setErr('');
+    try { await fn(); await reload(); } catch (e) { setErr(e.message); }
+    setBusy('');
+  };
+  const connect = (e) => { e.preventDefault(); run('connect', async () => { await api('/crm', { method: 'PUT', body: { code } }); setCode(''); }); };
+  const option = (body) => run('opt', () => api('/crm/options', { method: 'PUT', body }));
+  const st = data || {};
+  return (
+    <div className="card">
+      <h2>🔗 Edume CRM</h2>
+      {error && <div className="flash error">{error.message}</div>}
+      {err && <div className="flash error">{err}</div>}
+      {!st.connected ? (
+        <>
+          <p className="muted">O&apos;quv markazi Edume&apos;dan foydalansa: o&apos;quvchilar va guruhlar Edume&apos;dan avtomatik olinadi, yuz ko&apos;rsatilganda
+            Edume&apos;dagi darsga &quot;keldi / kechikdi&quot; yoziladi, dars tugagach kelmaganlar belgilanadi va ota-onaga Edume boti orqali xabar boradi.</p>
+          <ol className="steps">
+            <li>Edume → Sozlamalar → <b>Face ID qurilmasi</b> → &quot;Qurilma yaratish&quot; (direktor).</li>
+            <li>Chiqqan <b>ulanish kodini</b> nusxalab, shu yerga qo&apos;ying.</li>
+          </ol>
+          <form className="row" onSubmit={connect}>
+            <label style={{ flex: 1 }}>Ulanish kodi<input value={code} onChange={(e) => setCode(e.target.value)} placeholder="eyJhcGlLZXkiOi…" required /></label>
+            <button disabled={!!busy}>{busy === 'connect' ? 'Ulanmoqda…' : 'Ulash'}</button>
+          </form>
+        </>
+      ) : (
+        <>
+          <p>✅ Ulangan: <b>{st.centerName || st.centerId}</b>
+            {st.lastSync && <span className="muted"> · oxirgi sinxronlash: {localDateTime(st.lastSync)}</span>}</p>
+          {st.lastError && <p className="bad">⚠️ {st.lastError}</p>}
+          <p>Guruhlar: <b>{st.groups}</b> · o&apos;quvchilar: <b>{st.students}</b> (yuzi bor: {st.withFace})
+            {!st.parentBot && <span className="warn"> · Edume&apos;da Telegram bot sozlanmagan — ota-onalarga xabar bormaydi</span>}</p>
+          <div className="grid">
+            <label className="inline"><input type="checkbox" checked={st.autoAbsent} onChange={(e) => option({ autoAbsent: e.target.checked })} />
+              Dars tugagach kelmaganlarga &quot;absent&quot; qo&apos;yish</label>
+            <label>… dars tugagandan necha daqiqa keyin
+              <input type="number" min="0" max="240" defaultValue={st.absentAfterMinutes} onBlur={(e) => option({ absentAfterMinutes: e.target.value })} /></label>
+            <label className="inline"><input type="checkbox" checked={st.parentMessages} onChange={(e) => option({ parentMessages: e.target.checked })} />
+              Ota-onaga Edume boti orqali &quot;keldi / ketdi&quot; xabari</label>
+          </div>
+          <p className="hint">&quot;Absent&quot; faqat yuzi kiritilgan o&apos;quvchilarga va faqat o&apos;sha kuni terminallar ishlagan bo&apos;lsa qo&apos;yiladi.
+            O&apos;qituvchi Edume&apos;da istalgan belgini o&apos;zgartira oladi. O&apos;quvchilar ro&apos;yxati Edume&apos;da boshqariladi (har 10 daqiqada yangilanadi).</p>
+          <div className="row">
+            <button className="secondary" disabled={!!busy} onClick={() => run('sync', () => api('/crm/sync', { method: 'POST' }))}>
+              {busy === 'sync' ? 'Sinxronlanmoqda…' : '🔄 Hozir sinxronlash'}</button>
+            <button className="secondary" disabled={!!busy} style={{ marginLeft: 'auto' }}
+              onClick={() => confirm('Edume bilan aloqa uzilsinmi? O\'quvchilar tizimda qoladi, lekin Edume bilan yangilanmaydi.') && run('off', () => api('/crm', { method: 'DELETE' }))}>Uzish</button>
+          </div>
+        </>
+      )}
     </div>
   );
 }

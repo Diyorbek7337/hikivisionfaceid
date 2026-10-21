@@ -48,11 +48,11 @@ function clampInt(v, min, max) {
  * Class name in one form: "9 a", "9a", "9-а" (Cyrillic) -> "9-A"; anything else is kept, trimmed and upper-cased.
  */
 function normClass(v) {
-  let t = String(v || '').trim().replace(/\s+/g, ' ').toUpperCase().slice(0, 20);
+  const t = String(v || '').trim().replace(/\s+/g, ' ').slice(0, 20);
   const CYR = { А: 'A', Б: 'B', В: 'V', Г: 'G', Д: 'D', Е: 'E', Ж: 'J', З: 'Z', С: 'S' };
-  const m = /^(\d{1,2})\s*[-–—]?\s*["'«]?([A-ZА-ЯЁЎҚҒҲ]{1,2})["'»]?\s*(SINF|КЛАСС|КЛ\.?)?$/u.exec(t);
-  if (m) t = `${m[1]}-${[...m[2]].map((c) => CYR[c] || c).join('')}`;
-  return t;
+  const m = /^(\d{1,2})\s*[-–—]?\s*["'«]?([A-ZА-ЯЁЎҚҒҲ]{1,2})["'»]?\s*(SINF|КЛАСС|КЛ\.?)?$/u.exec(t.toUpperCase());
+  // "9 a" -> "9-A"; other names (a course group "Ingliz B1") keep their own spelling
+  return m ? `${m[1]}-${[...m[2]].map((c) => CYR[c] || c).join('')}` : t;
 }
 
 function cleanEmployee(b) {
@@ -121,7 +121,12 @@ function decodeImage(b64) {
   return buf;
 }
 
-function createApi({ store, auth, cfg, sync, backup, clientFor, version }) {
+function createApi({ store, auth, cfg, sync, backup, clientFor, crm = null, version }) {
+  /** Settings as the web app sees them: the CRM password and internal bookkeeping stay on the server. */
+  const publicSettings = (st) => {
+    const { crm: c, crmAbsentDone: _d, ...rest } = st;
+    return { ...rest, crm: c ? { connected: true, centerName: c.centerName } : null };
+  };
   const api = express.Router();
   // Small bodies before login; larger ones (face photos, Excel import) only for logged-in users.
   const smallJson = express.json({ limit: '32kb' });
@@ -167,7 +172,8 @@ function createApi({ store, auth, cfg, sync, backup, clientFor, version }) {
   // ---------- class teachers ----------
   // A teacher sees only the students of their classes: list, faces, attendance. Everything else is admin-only.
   const isTeacher = (req) => req.user.role === 'teacher';
-  const teaches = (req, emp) => !!emp && !emp.deleted && emp.kind === 'student' && (req.user.classes || []).includes(emp.className);
+  const sameClass = (a, b) => String(a || '').toLowerCase() === String(b || '').toLowerCase();
+  const teaches = (req, emp) => !!emp && !emp.deleted && emp.kind === 'student' && (req.user.classes || []).some((c) => sameClass(c, emp.className));
   const TEACHER_ROUTES = [
     ['GET', /^\/status$/], ['GET', /^\/employees$/], ['GET', /^\/today$/], ['GET', /^\/report$/],
     ['GET', /^\/employees\/\d+\/face\.jpg$/], ['PUT', /^\/employees\/\d+\/face$/],
@@ -194,7 +200,7 @@ function createApi({ store, auth, cfg, sync, backup, clientFor, version }) {
     }
     return res.json({
       version, ips: lanAddresses(), port: cfg.port, hostname: os.hostname(), timezone: tz,
-      today: localDate(new Date(), tz), settings: store.settings, telegram: !!cfg.botToken,
+      today: localDate(new Date(), tz), settings: publicSettings(store.settings), telegram: !!cfg.botToken,
       publicUrl: cfg.publicUrl || '', adminTelegramIds: cfg.adminTelegramIds || [], botUsername: cfg.botUsername || '',
     });
   });
@@ -225,7 +231,7 @@ function createApi({ store, auth, cfg, sync, backup, clientFor, version }) {
         return { id, name: String((v && v.name) || '').trim().slice(0, 60) };
       });
     }
-    res.json(store.saveSettings(patch));
+    res.json(publicSettings(store.saveSettings(patch)));
   });
 
   // ---------- dashboard ----------
@@ -251,6 +257,28 @@ function createApi({ store, auth, cfg, sync, backup, clientFor, version }) {
     res.json({ ok: true });
   });
   api.delete('/schedules/:id', (req, res) => { store.deleteSchedule(Number(req.params.id)); res.json({ ok: true }); });
+
+  // ---------- Edume CRM ----------
+  const needCrm = () => { if (!crm) throw new HttpError(503, 'CRM moduli yo\'q'); return crm; };
+  api.get('/crm', (req, res) => res.json(needCrm().status()));
+  api.put('/crm', wrap(async (req, res) => {
+    try {
+      res.json(await needCrm().connect(req.body.code));
+    } catch (err) {
+      throw new HttpError(err.status && err.status < 500 ? err.status : 400, err.message);
+    }
+  }));
+  api.put('/crm/options', (req, res) => { needCrm().setOptions(req.body || {}); res.json(crm.status()); });
+  api.post('/crm/sync', wrap(async (req, res) => {
+    try {
+      await needCrm().sync();
+      await crm.checkAbsent().catch(() => {});
+    } catch (err) {
+      throw new HttpError(502, err.message);
+    }
+    res.json(crm.status());
+  }));
+  api.delete('/crm', (req, res) => { needCrm().disconnect(); res.json({ connected: false }); });
 
   // ---------- door entry schedules ----------
   api.get('/access-profiles', (req, res) => {
@@ -300,7 +328,7 @@ function createApi({ store, auth, cfg, sync, backup, clientFor, version }) {
     const cls = req.query.class ? normClass(req.query.class) : '';
     const parents = store.parentCounts();
     const students = [...store.employees.values()]
-      .filter((e) => e.kind === 'student' && e.active && !e.deleted && (!cls || e.className === cls) && (!isTeacher(req) || teaches(req, e)))
+      .filter((e) => e.kind === 'student' && e.active && !e.deleted && (!cls || sameClass(e.className, cls)) && (!isTeacher(req) || teaches(req, e)))
       .map((e) => ({ id: e.id, name: e.name, className: e.className, code: e.linkCode, parents: parents.get(e.id) || 0 }));
     res.json({ botUsername: cfg.botUsername || '', organizationName: store.settings.organizationName || '', students });
   });

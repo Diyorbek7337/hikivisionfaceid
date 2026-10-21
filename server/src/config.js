@@ -15,6 +15,8 @@ function loadConfig(env = process.env) {
     backupDir: path.join(dataDir, 'backups'),
     webDir: resolve(env.WEB_DIR || '../web/out'),
     botToken: env.BOT_TOKEN || '',
+    // for testing only: send Edume (Firebase) requests to this address instead of googleapis.com
+    edumeApiBase: String(env.EDUME_API_BASE || '').replace(/\/+$/, ''),
     botUsername: String(env.BOT_USERNAME || '').replace(/^@/, ''), // normally read from Telegram at start
     adminTelegramIds: list(env.ADMIN_TELEGRAM_IDS),
     // Public HTTPS address of this server (Tailscale Funnel / Cloudflare Tunnel) for the Telegram mini app.

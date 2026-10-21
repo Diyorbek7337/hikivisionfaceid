@@ -35,6 +35,8 @@ const { createTelegram } = require('./telegram');
 const { createTgApi } = require('./tgapp');
 const { deviceBoundAt } = require('./events');
 const { createBotHandler } = require('./bot');
+const { CrmIntegration } = require('./crm');
+const { EdumeClient } = require('./edume');
 const { startDailyReport } = require('./report');
 const { lanAddresses, portOwner } = require('./net');
 const { startListening } = require('./listen');
@@ -76,8 +78,12 @@ store.on('devices', () => {
   monitor.checkAll().then(() => sync.schedule()).catch((e) => console.error(e));
 });
 
-const api = createApi({ store, auth, cfg, sync, backup, clientFor, version: pkg.version });
-const processor = createEventProcessor({ store, tz: cfg.timezone, telegram });
+const crm = new CrmIntegration({ // Edume CRM (when connected in Sozlamalar)
+  store, tz: cfg.timezone,
+  ...(cfg.edumeApiBase ? { clientFactory: (c) => new EdumeClient(c, { bases: { auth: cfg.edumeApiBase, token: cfg.edumeApiBase, firestore: cfg.edumeApiBase } }) } : {}),
+});
+const api = createApi({ store, auth, cfg, sync, backup, clientFor, crm, version: pkg.version });
+const processor = createEventProcessor({ store, tz: cfg.timezone, telegram, crm });
 const poller = new EventPoller({ store, clientFor, processor, tz: cfg.timezone });
 const tgApi = createTgApi({ store, cfg, secret });
 const app = createServer({ store, cfg, telegram, api, tgApi, processor });
@@ -124,6 +130,7 @@ ${owner
   }, cfg.deviceCheckSeconds * 1000).unref();
 
   poller.start();
+  crm.start();
 
   backup.daily();
   setInterval(() => backup.daily(), 3600 * 1000).unref();

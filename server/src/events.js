@@ -23,7 +23,7 @@ function deviceBoundAt(dev) {
   return Math.max(Number.isFinite(added) ? added : 0, Number(dev.boundAt) || 0);
 }
 
-function createEventProcessor({ store, tz, telegram, log = console }) {
+function createEventProcessor({ store, tz, telegram, crm = null, log = console }) {
   let queue = Promise.resolve();
   const lastWarn = new Map(); // same warning at most once per 10 minutes
   const warnOnce = (key, text) => {
@@ -73,6 +73,7 @@ function createEventProcessor({ store, tz, telegram, log = console }) {
     }
     notifyScan(telegram, tz, result);
     notifyParents({ store, telegram, tz, log }, result);
+    if (crm) crm.onScan(result); // Edume CRM: lesson attendance + parent message (never throws)
     return result.action;
   }
 

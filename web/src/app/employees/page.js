@@ -64,7 +64,8 @@ export default function Employees() {
               <tr key={e.id}>
                 <td>{e.hasFace ? <img className="face" src={faceUrl(e)} alt="" loading="lazy" /> : <span className="face" style={{ display: 'inline-grid', placeItems: 'center' }} title="Rasm yo'q">—</span>}</td>
                 <td><code>{e.employeeNo}</code></td>
-                <td>{e.name} {!e.active && <span className="pill muted">nofaol</span>}</td>
+                <td>{e.name} {!e.active && <span className="pill muted">nofaol</span>}
+                  {e.externalId && <span className="pill muted" title="Edume CRM'dan: ism, guruh va jadval Edume'da o'zgartiriladi">Edume</span>}</td>
                 <td className={students ? '' : 'muted'}>{students ? e.className : e.position}</td>
                 <td>{e.personalSchedule && e.personalSchedule.type === 'flexible' && <span className="pill muted">Erkin</span>}
                   {e.personalSchedule && e.personalSchedule.type !== 'flexible'

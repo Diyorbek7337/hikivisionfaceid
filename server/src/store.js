@@ -30,7 +30,10 @@ const DEFAULT_SETTINGS = {
   organizationName: '',
   dailyReportSentFor: '',
   parentNotifications: true, // arrival / departure messages to linked parents
-  telegramViewers: [], // [{ id, name }] who may open the Telegram mini app (read-only)
+  telegramViewers: [],
+  // Edume CRM link: { apiKey, projectId, email, password, centerId, centerName, autoAbsent, parentMessages, absentAfterMinutes }
+  crm: null,
+  crmAbsentDone: {}, // { date, groups: [groupId] } — lessons already checked for absentees // [{ id, name }] who may open the Telegram mini app (read-only)
   accessPlansVersion: 0, // bumped when door entry schedules change; terminals store the version they have
 };
 
@@ -59,6 +62,7 @@ function mapEmployee(r) {
     kind: r.kind === 'student' ? 'student' : 'staff',
     className: r.class_name || '',
     linkCode: r.link_code || '',
+    externalId: r.external_id || '',
     phone: r.phone || '',
     telegramChatId: r.telegram_chat_id || '',
     scheduleId: r.schedule_id,
@@ -338,6 +342,16 @@ class LocalStore extends EventEmitter {
     }
     this.reloadEmployees();
     return ids;
+  }
+
+  // ---------- CRM-synced people ----------
+  findByExternalId(externalId) {
+    for (const e of this.employees.values()) if (e.externalId === externalId && !e.deleted) return e;
+    return null;
+  }
+
+  setExternalId(id, externalId) {
+    this.q('UPDATE employees SET external_id = ? WHERE id = ?').run(externalId || null, id);
   }
 
   // ---------- parents ----------

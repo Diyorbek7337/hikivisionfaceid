@@ -104,6 +104,10 @@ function EmployeeForm() {
     <>
       <h1>{id ? `${student ? 'O\'quvchini' : 'Xodimni'} tahrirlash — ID ${original ? original.employeeNo : ''}` : student ? 'Yangi o\'quvchi' : 'Yangi xodim'}</h1>
       {error && <div className="flash error">{error}</div>}
+      {original && original.externalId && (
+        <div className="flash warn">🔗 Bu o&apos;quvchi Edume CRM&apos;dan olingan: ismi, guruhi va dars jadvali Edume&apos;da o&apos;zgartiriladi
+          (bu yerdagi o&apos;zgarish keyingi sinxronlashda qaytadi). Bu yerda faqat yuz rasmini kiriting.</div>
+      )}
       <form onSubmit={save}>
         {id && original && original.kind === 'student' && student && <ParentsCard student={original} onChange={(o) => setOriginal(o)} />}
         <div className="card">
