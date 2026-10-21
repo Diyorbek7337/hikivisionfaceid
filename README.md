@@ -278,6 +278,9 @@ to'liq admin panel (bu manzil faqat sizning qurilmalaringizga ko'rinadi). Server
 
 ## Muammolarni hal qilish
 
+- **Parol esdan chiqdi** — server kompyuterida `parol-tiklash.bat` ni ishga tushiring: foydalanuvchilar ro'yxati chiqadi,
+  login va yangi parolni kiritasiz.
+
 | Belgi | Yechim |
 |---|---|
 | Brauzerda sahifa ochilmayapti | Qora oyna (start-windows.bat) ishlayaptimi? |

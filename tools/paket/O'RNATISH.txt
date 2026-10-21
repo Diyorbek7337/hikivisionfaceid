@@ -71,6 +71,8 @@ KERAK: doim yoqiq turadigan Windows 10/11 kompyuter, terminallar bilan bitta tar
    - Rahbar botga /start yozadi -> ID sini Sozlamalar -> "Telefondan ko'ruvchilar" ga qo'shing.
    - U yana /start yozadi -> "Davomatni ochish" tugmasi chiqadi.
 
+PAROL ESDAN CHIQSA: parol-tiklash.bat -> login -> yangi parol.
+
 ZAXIRA: baza har kuni avtomatik nusxalanadi (zaxira-nusxa.bat papkani ochadi).
         Oyda bir marta fleshkaga ko'chirib qo'ying.
 
